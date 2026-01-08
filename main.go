@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"strings"
@@ -12,10 +13,14 @@ import (
 )
 
 func main() {
+	clear := flag.Bool("clear", false, "Clear credentials")
+	login := flag.Bool("login", false, "Login to Google Calendar")
+	flag.Parse()
+
 	ctx := context.Background()
 
 	// Handle --clear flag
-	if len(os.Args) > 1 && os.Args[1] == "--clear" {
+	if *clear {
 		if err := auth.ClearToken(); err != nil {
 			fmt.Fprintf(os.Stderr, "Error clearing credentials: %v\n", err)
 			os.Exit(1)
@@ -25,7 +30,7 @@ func main() {
 	}
 
 	// Handle --login flag
-	if len(os.Args) > 1 && os.Args[1] == "--login" {
+	if *login {
 		if err := auth.Login(ctx); err != nil {
 			fmt.Fprintf(os.Stderr, "Error during login: %v\n", err)
 			os.Exit(1)
