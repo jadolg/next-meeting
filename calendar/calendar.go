@@ -44,9 +44,12 @@ func NewService(ctx context.Context, client *http.Client) (*Service, error) {
 func (s *Service) GetMeetingStatus(ctx context.Context) (*MeetingStatus, error) {
 	now := time.Now()
 
-	// Query events from now onwards, limited to the next 24 hours
+	// Query events from now onwards, limited to today
+	year, month, day := now.Date()
+	tomorrow := time.Date(year, month, day+1, 0, 0, 0, 0, now.Location())
+
 	timeMin := now.Add(-2 * time.Hour).Format(time.RFC3339) // Include events that may have started recently
-	timeMax := now.Add(24 * time.Hour).Format(time.RFC3339)
+	timeMax := tomorrow.Format(time.RFC3339)
 
 	events, err := s.svc.Events.List("primary").
 		ShowDeleted(false).
