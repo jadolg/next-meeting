@@ -9,15 +9,27 @@ import (
 	"time"
 
 	"next-meeting/auth"
+	"next-meeting/cache"
 	"next-meeting/calendar"
 )
 
 func main() {
 	clear := flag.Bool("clear", false, "Clear credentials")
+	clearCache := flag.Bool("clear-cache", false, "Clear the calendar cache")
 	login := flag.Bool("login", false, "Login to Google Calendar")
 	flag.Parse()
 
 	ctx := context.Background()
+
+	// Handle --clear-cache flag
+	if *clearCache {
+		if err := cache.Clear(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error clearing cache: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("✓ Cache cleared (%s)\n", cache.GetPath())
+		return
+	}
 
 	// Handle --clear flag
 	if *clear {
@@ -45,25 +57,36 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Get authenticated client
-	client, err := auth.GetClient(ctx)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error getting authenticated client: %v\n", err)
-		os.Exit(1)
-	}
+	// Try to read from cache first
+	status := cache.Read()
 
-	// Create calendar service
-	calSvc, err := calendar.NewService(ctx, client)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error creating calendar service: %v\n", err)
-		os.Exit(1)
-	}
+	// If no valid cache, fetch from API
+	if status == nil {
+		// Get authenticated client
+		client, err := auth.GetClient(ctx)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error getting authenticated client: %v\n", err)
+			os.Exit(1)
+		}
 
-	// Get meeting status
-	status, err := calSvc.GetMeetingStatus(ctx)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error getting meeting status: %v\n", err)
-		os.Exit(1)
+		// Create calendar service
+		calSvc, err := calendar.NewService(ctx, client)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error creating calendar service: %v\n", err)
+			os.Exit(1)
+		}
+
+		// Get meeting status from API
+		status, err = calSvc.GetMeetingStatus(ctx)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error getting meeting status: %v\n", err)
+			os.Exit(1)
+		}
+
+		// Cache the result
+		if err := cache.Write(status); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to cache results: %v\n", err)
+		}
 	}
 
 	now := time.Now()
