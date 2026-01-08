@@ -117,7 +117,7 @@ func FormatDuration(d time.Duration) string {
 	minutes := int(d.Minutes()) % 60
 
 	if hours > 0 {
-		return fmt.Sprintf("%dh %dm", hours, minutes)
+		return fmt.Sprintf("%dh%dm", hours, minutes)
 	}
 	return fmt.Sprintf("%dm", minutes)
 }

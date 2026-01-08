@@ -69,13 +69,21 @@ func main() {
 	// Current meeting (if any)
 	if status.CurrentMeeting != nil {
 		remaining := status.CurrentMeeting.End.Sub(now)
-		parts = append(parts, fmt.Sprintf("🔴 %s (%s left)", status.CurrentMeeting.Summary, calendar.FormatDuration(remaining)))
+		if remaining < time.Minute {
+			parts = append(parts, fmt.Sprintf("🔴 %s finishing now", status.CurrentMeeting.Summary))
+		} else {
+			parts = append(parts, fmt.Sprintf("🔴 %s (%s left)", status.CurrentMeeting.Summary, calendar.FormatDuration(remaining)))
+		}
 	}
 
 	// Next meeting (if any)
 	if status.NextMeeting != nil {
 		startsIn := status.NextMeeting.Start.Sub(now)
-		parts = append(parts, fmt.Sprintf("⏭ %s in %s", status.NextMeeting.Summary, calendar.FormatDuration(startsIn)))
+		if startsIn < time.Minute {
+			parts = append(parts, fmt.Sprintf("🕐 %s starting now", status.NextMeeting.Summary))
+		} else {
+			parts = append(parts, fmt.Sprintf("🕐 %s in %s", status.NextMeeting.Summary, calendar.FormatDuration(startsIn)))
+		}
 	}
 
 	// Output
