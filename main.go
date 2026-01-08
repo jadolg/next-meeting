@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 	"time"
@@ -79,6 +81,10 @@ func main() {
 		// Get meeting status from API
 		status, err = calSvc.GetMeetingStatus(ctx)
 		if err != nil {
+			if isNetworkError(err) {
+				fmt.Println("📡 Calendar Offline")
+				return
+			}
 			fmt.Fprintf(os.Stderr, "Error getting meeting status: %v\n", err)
 			os.Exit(1)
 		}
@@ -120,4 +126,19 @@ func main() {
 	} else {
 		fmt.Println(strings.Join(parts, " │ "))
 	}
+}
+
+// isNetworkError checks if an error is related to network connectivity issues
+func isNetworkError(err error) bool {
+	var netErr *net.OpError
+	if errors.As(err, &netErr) {
+		return true
+	}
+
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return true
+	}
+
+	return false
 }
