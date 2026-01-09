@@ -26,8 +26,7 @@ func main() {
 	// Handle --clear-cache flag
 	if *clearCache {
 		if err := cache.Clear(); err != nil {
-			fmt.Fprintf(os.Stderr, "Error clearing cache: %v\n", err)
-			os.Exit(1)
+			errorAndExit("Error clearing cache: %v\n", err)
 		}
 		fmt.Printf("✓ Cache cleared (%s)\n", cache.GetPath())
 		return
@@ -36,8 +35,7 @@ func main() {
 	// Handle --clear flag
 	if *clearCredentials {
 		if err := auth.ClearToken(); err != nil {
-			fmt.Fprintf(os.Stderr, "Error clearing credentials: %v\n", err)
-			os.Exit(1)
+			errorAndExit("Error clearing credentials: %v\n", err)
 		}
 		fmt.Println("✓ Credentials cleared")
 		return
@@ -46,8 +44,7 @@ func main() {
 	// Handle --login flag
 	if *login {
 		if err := auth.Login(ctx); err != nil {
-			fmt.Fprintf(os.Stderr, "Error during login: %v\n", err)
-			os.Exit(1)
+			errorAndExit("Error during login: %v\n", err)
 		}
 		fmt.Println("✓ Logged in successfully")
 		return
@@ -55,8 +52,7 @@ func main() {
 
 	// Check if logged in
 	if !auth.IsLoggedIn(ctx) {
-		fmt.Println("🔒 Not logged in. Run with --login to authenticate.")
-		os.Exit(1)
+		errorAndExit("🔒 Not logged in. Run with --login to authenticate.", nil)
 	}
 
 	// Try to read events from cache first
@@ -64,40 +60,26 @@ func main() {
 
 	// If no valid cache, fetch from API
 	if events == nil {
-		// Get authenticated client
-		client, err := auth.GetClient(ctx)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error getting authenticated client: %v\n", err)
-			os.Exit(1)
-		}
-
-		// Create calendar service
-		calSvc, err := calendar.NewService(ctx, client)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating calendar service: %v\n", err)
-			os.Exit(1)
-		}
-
-		// Get events from API
-		events, err = calSvc.GetTodayEvents(ctx)
-		if err != nil {
-			if isNetworkError(err) {
-				fmt.Println("📡 Calendar Offline")
-				return
-			}
-			fmt.Fprintf(os.Stderr, "Error getting events: %v\n", err)
-			os.Exit(1)
-		}
-
-		// Cache the events
-		if err := cache.Write(events); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to cache results: %v\n", err)
+		events = getAndCacheEvents(ctx, events)
+		if events == nil {
+			os.Exit(0) // Already handled in getAndCacheEvents
 		}
 	}
 
 	// Calculate current/next meeting status from events (always fresh calculation)
 	status := calendar.GetMeetingStatus(events)
 
+	parts := buildParts(status)
+
+	// Output
+	if len(parts) == 0 {
+		fmt.Println("📭 No meetings")
+	} else {
+		fmt.Println(strings.Join(parts, " │ "))
+	}
+}
+
+func buildParts(status *calendar.MeetingStatus) []string {
 	now := time.Now()
 
 	// Build single-line output
@@ -122,13 +104,46 @@ func main() {
 			parts = append(parts, fmt.Sprintf("🕐 %s in %s", status.NextMeeting.Summary, calendar.FormatDuration(startsIn)))
 		}
 	}
+	return parts
+}
 
-	// Output
-	if len(parts) == 0 {
-		fmt.Println("📭 No meetings")
-	} else {
-		fmt.Println(strings.Join(parts, " │ "))
+func getAndCacheEvents(ctx context.Context, events []*calendar.MeetingInfo) []*calendar.MeetingInfo {
+	// Get authenticated client
+	client, err := auth.GetClient(ctx)
+	if err != nil {
+		errorAndExit("Error getting authenticated client: %v\n", err)
 	}
+
+	// Create calendar service
+	calSvc, err := calendar.NewService(ctx, client)
+	if err != nil {
+		errorAndExit("Error creating calendar service: %v\n", err)
+	}
+
+	// Get events from API
+	events, err = calSvc.GetTodayEvents(ctx)
+	if err != nil {
+		if isNetworkError(err) {
+			fmt.Println("📡 Calendar Offline")
+			return nil
+		}
+		errorAndExit("Error getting events: %v\n", err)
+	}
+
+	// Cache the events
+	if err := cache.Write(events); err != nil {
+		errorAndExit("Warning: failed to cache results: %v\n", err)
+	}
+	return events
+}
+
+// errorAndExit prints an error message to stderr and exits the program
+func errorAndExit(format string, err error) {
+	_, printErr := fmt.Fprintf(os.Stderr, format, err)
+	if printErr != nil {
+		panic(printErr)
+	}
+	os.Exit(1)
 }
 
 // isNetworkError checks if an error is related to network connectivity issues

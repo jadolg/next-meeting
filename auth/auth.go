@@ -42,7 +42,10 @@ func IsLoggedIn(ctx context.Context) bool {
 	}
 	// Save refreshed token if needed
 	if newToken.AccessToken != token.AccessToken {
-		keyring.SaveToken(newToken)
+		err := keyring.SaveToken(newToken)
+		if err != nil {
+			return false
+		}
 	}
 	return true
 }
