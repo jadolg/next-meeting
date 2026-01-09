@@ -244,6 +244,19 @@ func TestGetMeetingStatus(t *testing.T) {
 			wantCurrentMeetingNil: false,
 			wantNextMeetingNil:    true,
 		},
+		// Edge case: meeting starts during current meeting - should be next
+		{
+			name: "meeting starts during current meeting - should be next",
+			events: []*MeetingInfo{
+				makeMeeting("Long Current", -30*time.Minute, 2*time.Hour),
+				makeMeeting("Starts During", 15*time.Minute, 1*time.Hour),
+			},
+			now:                   fixedNow,
+			wantCurrentSummary:    "Long Current",
+			wantCurrentMeetingNil: false,
+			wantNextSummary:       "Starts During",
+			wantNextMeetingNil:    false,
+		},
 	}
 
 	for _, tt := range tests {

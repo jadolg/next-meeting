@@ -109,10 +109,10 @@ func GetMeetingStatus(events []*MeetingInfo) *MeetingStatus {
 				(meeting.Start.Equal(status.CurrentMeeting.Start) && meeting.End.Before(status.CurrentMeeting.End)) {
 				status.CurrentMeeting = meeting
 			}
-			continue
 		}
 
 		// Future meeting: earliest upcoming, or if same start time, prefer shorter
+		// This includes meetings that start during the current meeting
 		if now.Before(meeting.Start) {
 			if status.NextMeeting == nil ||
 				meeting.Start.Before(status.NextMeeting.Start) ||
