@@ -60,10 +60,7 @@ func main() {
 
 	// If no valid cache, fetch from API
 	if events == nil {
-		events = getAndCacheEvents(ctx, events)
-		if events == nil {
-			os.Exit(0) // Already handled in getAndCacheEvents
-		}
+		events = getAndCacheEvents(ctx)
 	}
 
 	// Calculate current/next meeting status from events (always fresh calculation)
@@ -107,7 +104,7 @@ func buildParts(status *calendar.MeetingStatus) []string {
 	return parts
 }
 
-func getAndCacheEvents(ctx context.Context, events []*calendar.MeetingInfo) []*calendar.MeetingInfo {
+func getAndCacheEvents(ctx context.Context) (events []*calendar.MeetingInfo) {
 	// Get authenticated client
 	client, err := auth.GetClient(ctx)
 	if err != nil {
@@ -124,8 +121,7 @@ func getAndCacheEvents(ctx context.Context, events []*calendar.MeetingInfo) []*c
 	events, err = calSvc.GetTodayEvents(ctx)
 	if err != nil {
 		if isNetworkError(err) {
-			fmt.Println("📡 Calendar Offline")
-			return nil
+			errorAndExit("📡 Calendar Offline", nil)
 		}
 		errorAndExit("Error getting events: %v\n", err)
 	}
