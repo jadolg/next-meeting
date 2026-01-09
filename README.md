@@ -36,15 +36,23 @@ To allow `next-meeting` to access your calendar, you need to create an OAuth 2.0
 7.  Name it (e.g., "Next Meeting CLI").
 8.  Download the JSON file.
 9.  Rename the downloaded file to `credentials.json`.
-10. Move it to the `auth/` directory in this project:
+10. Move it to your system's configuration directory:
 
+    | OS      | Path                                          |
+    |---------|-----------------------------------------------|
+    | Linux   | `~/.config/next-meeting/credentials.json`     |
+    | macOS   | `~/Library/Application Support/next-meeting/credentials.json` |
+    | Windows | `%APPDATA%\next-meeting\credentials.json`     |
+
+    For example, on Linux:
     ```bash
-    mv /path/to/downloaded-file.json auth/credentials.json
+    mkdir -p ~/.config/next-meeting
+    mv /path/to/downloaded-file.json ~/.config/next-meeting/credentials.json
     ```
 
 ### 3. Build the Project
 
-Run `go build` to compile the application. This will embed your `credentials.json` into the binary.
+Run `go build` to compile the application.
 
 ```bash
 go build -o next-meeting

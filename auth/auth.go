@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 
@@ -169,18 +168,4 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 // ClearToken removes the stored token from the keyring
 func ClearToken() error {
 	return keyring.DeleteToken()
-}
-
-// TokenToJSON converts a token to JSON bytes
-func TokenToJSON(token *oauth2.Token) ([]byte, error) {
-	return json.Marshal(token)
-}
-
-// TokenFromJSON converts JSON bytes to a token
-func TokenFromJSON(data []byte) (*oauth2.Token, error) {
-	var token oauth2.Token
-	if err := json.Unmarshal(data, &token); err != nil {
-		return nil, err
-	}
-	return &token, nil
 }
