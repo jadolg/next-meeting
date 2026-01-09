@@ -23,7 +23,15 @@ git clone https://github.com/jadolg/next-meeting.git
 cd next-meeting
 ```
 
-### 2. Configure Google Credentials
+### 2. Build the Project
+
+Run `go build` to compile the application. This will embed your `credentials.json` into the binary.
+
+```bash
+go build -o next-meeting
+```
+
+### 3. Configure Google Credentials
 
 To allow `next-meeting` to access your calendar, you need to create an OAuth 2.0 Client ID in the Google Cloud Console.
 
@@ -36,19 +44,11 @@ To allow `next-meeting` to access your calendar, you need to create an OAuth 2.0
 7.  Name it (e.g., "Next Meeting CLI").
 8.  Download the JSON file.
 9.  Rename the downloaded file to `credentials.json`.
-10. Move it to the `auth/` directory in this project:
+10. Load the credentials into your keyring:
 
     ```bash
-    mv /path/to/downloaded-file.json auth/credentials.json
+    ./next-meeting --load ./credentials.json
     ```
-
-### 3. Build the Project
-
-Run `go build` to compile the application. This will embed your `credentials.json` into the binary.
-
-```bash
-go build -o next-meeting
-```
 
 ## Usage
 

@@ -19,6 +19,7 @@ func main() {
 	clear := flag.Bool("clear", false, "Clear credentials")
 	clearCache := flag.Bool("clear-cache", false, "Clear the calendar cache")
 	login := flag.Bool("login", false, "Login to Google Calendar")
+	credsLoad := flag.String("load", "", "Load app credentials file into OS keyring")
 	flag.Parse()
 
 	ctx := context.Background()
@@ -43,9 +44,30 @@ func main() {
 		return
 	}
 
+	// Handle --load flag
+	if *credsLoad != "" {
+		creds, err := auth.LoadCredentialsFromFile(*credsLoad)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading file: %v\n", err)
+			os.Exit(1)
+		}
+		if err := auth.SaveCredentials(creds); err != nil {
+			fmt.Fprintf(os.Stderr, "Error writing to keyring: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("✓ App credentials loaded into keyring")
+		return
+	}
+
+	creds, err := auth.LoadCredentials()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading app credentials: %v\n", err)
+		os.Exit(1)
+	}
+
 	// Handle --login flag
 	if *login {
-		if err := auth.Login(ctx); err != nil {
+		if err := auth.Login(ctx, creds); err != nil {
 			fmt.Fprintf(os.Stderr, "Error during login: %v\n", err)
 			os.Exit(1)
 		}
@@ -54,7 +76,7 @@ func main() {
 	}
 
 	// Check if logged in
-	if !auth.IsLoggedIn(ctx) {
+	if !auth.IsLoggedIn(ctx, creds) {
 		fmt.Println("🔒 Not logged in. Run with --login to authenticate.")
 		os.Exit(1)
 	}
@@ -65,7 +87,7 @@ func main() {
 	// If no valid cache, fetch from API
 	if status == nil {
 		// Get authenticated client
-		client, err := auth.GetClient(ctx)
+		client, err := auth.GetClient(ctx, creds)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error getting authenticated client: %v\n", err)
 			os.Exit(1)

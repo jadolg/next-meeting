@@ -10,17 +10,15 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/calendar/v3"
-
-	"next-meeting/keyring"
 )
 
 const redirectURL = "http://localhost:8085/callback"
 
 // GetOAuthConfig returns the OAuth2 configuration
-func GetOAuthConfig() *oauth2.Config {
+func GetOAuthConfig(creds Credentials) *oauth2.Config {
 	return &oauth2.Config{
-		ClientID:     ClientID(),
-		ClientSecret: ClientSecret(),
+		ClientID:     creds.ClientID,
+		ClientSecret: creds.ClientSecret,
 		RedirectURL:  redirectURL,
 		Scopes:       []string{calendar.CalendarReadonlyScope},
 		Endpoint:     google.Endpoint,
@@ -28,9 +26,9 @@ func GetOAuthConfig() *oauth2.Config {
 }
 
 // IsLoggedIn checks if we have a valid token stored
-func IsLoggedIn(ctx context.Context) bool {
-	config := GetOAuthConfig()
-	token, err := keyring.LoadToken()
+func IsLoggedIn(ctx context.Context, creds Credentials) bool {
+	config := GetOAuthConfig(creds)
+	token, err := LoadToken()
 	if err != nil || token == nil {
 		return false
 	}
@@ -42,7 +40,9 @@ func IsLoggedIn(ctx context.Context) bool {
 	}
 	// Save refreshed token if needed
 	if newToken.AccessToken != token.AccessToken {
-		keyring.SaveToken(newToken)
+		if saveErr := SaveToken(newToken); saveErr != nil {
+			fmt.Printf("Warning: could not save token: %v\n", saveErr)
+		}
 	}
 	return true
 }
@@ -50,11 +50,11 @@ func IsLoggedIn(ctx context.Context) bool {
 // GetClient returns an authenticated HTTP client.
 // It first tries to load a token from the keyring.
 // If no token exists or the token is invalid, it returns an error.
-func GetClient(ctx context.Context) (*http.Client, error) {
-	config := GetOAuthConfig()
+func GetClient(ctx context.Context, creds Credentials) (*http.Client, error) {
+	config := GetOAuthConfig(creds)
 
 	// Try to load existing token from keyring
-	token, err := keyring.LoadToken()
+	token, err := LoadToken()
 	if err != nil || token == nil {
 		return nil, fmt.Errorf("not logged in")
 	}
@@ -69,7 +69,7 @@ func GetClient(ctx context.Context) (*http.Client, error) {
 	// Token is valid (possibly refreshed)
 	if newToken.AccessToken != token.AccessToken {
 		// Token was refreshed, save the new one
-		if saveErr := keyring.SaveToken(newToken); saveErr != nil {
+		if saveErr := SaveToken(newToken); saveErr != nil {
 			fmt.Printf("Warning: could not save refreshed token: %v\n", saveErr)
 		}
 	}
@@ -77,15 +77,15 @@ func GetClient(ctx context.Context) (*http.Client, error) {
 }
 
 // Login initiates the OAuth2 flow and saves the token
-func Login(ctx context.Context) error {
-	config := GetOAuthConfig()
+func Login(ctx context.Context, creds Credentials) error {
+	config := GetOAuthConfig(creds)
 	token, err := getTokenFromWeb(ctx, config)
 	if err != nil {
 		return fmt.Errorf("unable to get token from web: %w", err)
 	}
 
 	// Save token to keyring
-	if err := keyring.SaveToken(token); err != nil {
+	if err := SaveToken(token); err != nil {
 		return fmt.Errorf("could not save token to keyring: %w", err)
 	}
 
@@ -161,11 +161,6 @@ func getTokenFromWeb(ctx context.Context, config *oauth2.Config) (*oauth2.Token,
 	}
 
 	return token, nil
-}
-
-// ClearToken removes the stored token from the keyring
-func ClearToken() error {
-	return keyring.DeleteToken()
 }
 
 // TokenToJSON converts a token to JSON bytes
