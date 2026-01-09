@@ -103,16 +103,20 @@ func GetMeetingStatus(events []*MeetingInfo) *MeetingStatus {
 	for _, meeting := range events {
 		// Current meeting: now in [Start, End)
 		if !now.Before(meeting.Start) && now.Before(meeting.End) {
-			// Prefer the one that started more recently
-			if status.CurrentMeeting == nil || meeting.Start.After(status.CurrentMeeting.Start) {
+			// Prefer the one that started more recently, or if same start time, prefer shorter
+			if status.CurrentMeeting == nil ||
+				meeting.Start.After(status.CurrentMeeting.Start) ||
+				(meeting.Start.Equal(status.CurrentMeeting.Start) && meeting.End.Before(status.CurrentMeeting.End)) {
 				status.CurrentMeeting = meeting
 			}
 			continue
 		}
 
-		// Future meeting: earliest upcoming
+		// Future meeting: earliest upcoming, or if same start time, prefer shorter
 		if now.Before(meeting.Start) {
-			if status.NextMeeting == nil || meeting.Start.Before(status.NextMeeting.Start) {
+			if status.NextMeeting == nil ||
+				meeting.Start.Before(status.NextMeeting.Start) ||
+				(meeting.Start.Equal(status.NextMeeting.Start) && meeting.End.Before(status.NextMeeting.End)) {
 				status.NextMeeting = meeting
 			}
 		}
