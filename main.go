@@ -16,7 +16,7 @@ import (
 )
 
 func main() {
-	clear := flag.Bool("clear", false, "Clear credentials")
+	clearCredentials := flag.Bool("clear", false, "Clear credentials")
 	clearCache := flag.Bool("clear-cache", false, "Clear the calendar cache")
 	login := flag.Bool("login", false, "Login to Google Calendar")
 	flag.Parse()
@@ -34,7 +34,7 @@ func main() {
 	}
 
 	// Handle --clear flag
-	if *clear {
+	if *clearCredentials {
 		if err := auth.ClearToken(); err != nil {
 			fmt.Fprintf(os.Stderr, "Error clearing credentials: %v\n", err)
 			os.Exit(1)
@@ -59,11 +59,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Try to read from cache first
-	status := cache.Read()
+	// Try to read events from cache first
+	events := cache.Read()
 
 	// If no valid cache, fetch from API
-	if status == nil {
+	if events == nil {
 		// Get authenticated client
 		client, err := auth.GetClient(ctx)
 		if err != nil {
@@ -78,22 +78,25 @@ func main() {
 			os.Exit(1)
 		}
 
-		// Get meeting status from API
-		status, err = calSvc.GetMeetingStatus(ctx)
+		// Get events from API
+		events, err = calSvc.GetTodayEvents(ctx)
 		if err != nil {
 			if isNetworkError(err) {
 				fmt.Println("📡 Calendar Offline")
 				return
 			}
-			fmt.Fprintf(os.Stderr, "Error getting meeting status: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Error getting events: %v\n", err)
 			os.Exit(1)
 		}
 
-		// Cache the result
-		if err := cache.Write(status); err != nil {
+		// Cache the events
+		if err := cache.Write(events); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to cache results: %v\n", err)
 		}
 	}
+
+	// Calculate current/next meeting status from events (always fresh calculation)
+	status := calendar.GetMeetingStatus(events)
 
 	now := time.Now()
 

@@ -40,8 +40,8 @@ func NewService(ctx context.Context, client *http.Client) (*Service, error) {
 	return &Service{svc: svc}, nil
 }
 
-// GetMeetingStatus fetches the current and next meetings from the primary calendar
-func (s *Service) GetMeetingStatus(ctx context.Context) (*MeetingStatus, error) {
+// GetTodayEvents fetches all events for today from the primary calendar
+func (s *Service) GetTodayEvents(ctx context.Context) ([]*MeetingInfo, error) {
 	now := time.Now()
 
 	// Query events from now onwards, limited to today
@@ -63,7 +63,7 @@ func (s *Service) GetMeetingStatus(ctx context.Context) (*MeetingStatus, error) 
 		return nil, fmt.Errorf("unable to retrieve events: %w", err)
 	}
 
-	status := &MeetingStatus{}
+	var result []*MeetingInfo
 
 	for _, item := range events.Items {
 		// Skip all-day events
@@ -89,12 +89,24 @@ func (s *Service) GetMeetingStatus(ctx context.Context) (*MeetingStatus, error) 
 			Attendees: len(item.Attendees),
 		}
 
+		result = append(result, meeting)
+	}
+
+	return result, nil
+}
+
+// GetMeetingStatus calculates current and next meetings from a list of events
+func GetMeetingStatus(events []*MeetingInfo) *MeetingStatus {
+	now := time.Now()
+	status := &MeetingStatus{}
+
+	for _, meeting := range events {
 		// Check if this is a current meeting (happening now)
-		if now.After(start) && now.Before(end) {
+		if now.After(meeting.Start) && now.Before(meeting.End) {
 			if status.CurrentMeeting == nil {
 				status.CurrentMeeting = meeting
 			}
-		} else if now.Before(start) {
+		} else if now.Before(meeting.Start) {
 			// This is a future meeting
 			if status.NextMeeting == nil {
 				status.NextMeeting = meeting
@@ -107,7 +119,7 @@ func (s *Service) GetMeetingStatus(ctx context.Context) (*MeetingStatus, error) 
 		}
 	}
 
-	return status, nil
+	return status
 }
 
 // FormatDuration returns a human-readable duration string

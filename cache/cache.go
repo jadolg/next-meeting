@@ -16,8 +16,8 @@ const (
 
 // CachedData represents the structure stored in the cache file
 type CachedData struct {
-	Timestamp     time.Time               `json:"timestamp"`
-	MeetingStatus *calendar.MeetingStatus `json:"meeting_status"`
+	Timestamp time.Time               `json:"timestamp"`
+	Events    []*calendar.MeetingInfo `json:"events"`
 }
 
 // GetPath returns the path to the cache file
@@ -25,9 +25,9 @@ func GetPath() string {
 	return filepath.Join(os.TempDir(), cacheFileName)
 }
 
-// Read reads cached meeting status from file.
+// Read reads cached events from file.
 // Returns nil if cache doesn't exist or is expired.
-func Read() *calendar.MeetingStatus {
+func Read() []*calendar.MeetingInfo {
 	data, err := os.ReadFile(GetPath())
 	if err != nil {
 		return nil
@@ -43,14 +43,14 @@ func Read() *calendar.MeetingStatus {
 		return nil
 	}
 
-	return cached.MeetingStatus
+	return cached.Events
 }
 
-// Write writes meeting status to the cache file
-func Write(status *calendar.MeetingStatus) error {
+// Write writes events to the cache file
+func Write(events []*calendar.MeetingInfo) error {
 	cached := CachedData{
-		Timestamp:     time.Now(),
-		MeetingStatus: status,
+		Timestamp: time.Now(),
+		Events:    events,
 	}
 
 	data, err := json.Marshal(cached)
