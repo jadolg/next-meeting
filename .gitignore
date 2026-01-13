@@ -2,3 +2,5 @@
 next-meeting
 credentials.json
 .idea
+# Added by goreleaser init:
+dist/
