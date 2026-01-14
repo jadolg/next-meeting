@@ -19,6 +19,7 @@ func main() {
 	clearCredentials := flag.Bool("clear", false, "Clear credentials")
 	clearCache := flag.Bool("clear-cache", false, "Clear the calendar cache")
 	login := flag.Bool("login", false, "Login to Google Calendar")
+	onlyAccepted := flag.Bool("only-accepted", false, "Only show meetings you have accepted")
 	flag.Parse()
 
 	ctx := context.Background()
@@ -61,6 +62,11 @@ func main() {
 	// If no valid cache, fetch from API
 	if events == nil {
 		events = getAndCacheEvents(ctx)
+	}
+
+	// Filter to only accepted events if requested
+	if *onlyAccepted {
+		events = calendar.FilterAccepted(events)
 	}
 
 	// Calculate current/next meeting status from events (always fresh calculation)
