@@ -12,12 +12,13 @@ import (
 
 // MeetingInfo contains information about a calendar event
 type MeetingInfo struct {
-	Summary   string
-	Start     time.Time
-	End       time.Time
-	IsAllDay  bool
-	Location  string
-	Attendees int
+	Summary            string
+	Start              time.Time
+	End                time.Time
+	IsAllDay           bool
+	Location           string
+	Attendees          int
+	SelfResponseStatus string // The current user's response status (accepted, declined, tentative, needsAction)
 }
 
 // MeetingStatus represents the current meeting status
@@ -40,7 +41,7 @@ func NewService(ctx context.Context, client *http.Client) (*Service, error) {
 	return &Service{svc: svc}, nil
 }
 
-// GetTodayEvents fetches all events for today from the primary calendar
+// GetTodayEvents fetches all events for today from the primary calendar.
 func (s *Service) GetTodayEvents(ctx context.Context) ([]*MeetingInfo, error) {
 	now := time.Now()
 
@@ -82,17 +83,50 @@ func (s *Service) GetTodayEvents(ctx context.Context) ([]*MeetingInfo, error) {
 		}
 
 		meeting := &MeetingInfo{
-			Summary:   item.Summary,
-			Start:     start,
-			End:       end,
-			Location:  item.Location,
-			Attendees: len(item.Attendees),
+			Summary:            item.Summary,
+			Start:              start,
+			End:                end,
+			Location:           item.Location,
+			Attendees:          len(item.Attendees),
+			SelfResponseStatus: getSelfResponseStatus(item),
 		}
 
 		result = append(result, meeting)
 	}
 
 	return result, nil
+}
+
+// getSelfResponseStatus returns the current user's response status for an event
+func getSelfResponseStatus(event *calendar.Event) string {
+	// Events without attendees are considered accepted (user-created events)
+	if len(event.Attendees) == 0 {
+		return "accepted"
+	}
+
+	for _, attendee := range event.Attendees {
+		if attendee.Self {
+			return attendee.ResponseStatus
+		}
+	}
+
+	// If user is the organizer and not in attendees list, consider accepted
+	if event.Organizer != nil && event.Organizer.Self {
+		return "accepted"
+	}
+
+	return ""
+}
+
+// FilterAccepted returns only events where the user has accepted or tentatively accepted (maybe)
+func FilterAccepted(events []*MeetingInfo) []*MeetingInfo {
+	var result []*MeetingInfo
+	for _, event := range events {
+		if event.SelfResponseStatus == "accepted" || event.SelfResponseStatus == "tentative" {
+			result = append(result, event)
+		}
+	}
+	return result
 }
 
 // GetMeetingStatus calculates current and next meetings from a list of events

@@ -577,3 +577,268 @@ func TestGetMeetingStatus_LargeDataSets(t *testing.T) {
 		}
 	})
 }
+
+func TestFilterAccepted(t *testing.T) {
+	fixedNow := time.Date(2026, 1, 14, 10, 0, 0, 0, time.UTC)
+
+	// Helper function to create meetings with a specific response status
+	makeMeetingWithStatus := func(summary string, status string) *MeetingInfo {
+		return &MeetingInfo{
+			Summary:            summary,
+			Start:              fixedNow,
+			End:                fixedNow.Add(1 * time.Hour),
+			Location:           "Test Location",
+			Attendees:          5,
+			SelfResponseStatus: status,
+		}
+	}
+
+	tests := []struct {
+		name          string
+		events        []*MeetingInfo
+		wantCount     int
+		wantSummaries []string
+	}{
+		{
+			name:          "empty events list",
+			events:        []*MeetingInfo{},
+			wantCount:     0,
+			wantSummaries: nil,
+		},
+		{
+			name:          "nil events list",
+			events:        nil,
+			wantCount:     0,
+			wantSummaries: nil,
+		},
+		{
+			name: "single accepted event",
+			events: []*MeetingInfo{
+				makeMeetingWithStatus("Accepted Meeting", "accepted"),
+			},
+			wantCount:     1,
+			wantSummaries: []string{"Accepted Meeting"},
+		},
+		{
+			name: "single tentative event (maybe)",
+			events: []*MeetingInfo{
+				makeMeetingWithStatus("Maybe Meeting", "tentative"),
+			},
+			wantCount:     1,
+			wantSummaries: []string{"Maybe Meeting"},
+		},
+		{
+			name: "single declined event",
+			events: []*MeetingInfo{
+				makeMeetingWithStatus("Declined Meeting", "declined"),
+			},
+			wantCount:     0,
+			wantSummaries: nil,
+		},
+		{
+			name: "single needsAction event (not responded)",
+			events: []*MeetingInfo{
+				makeMeetingWithStatus("Pending Meeting", "needsAction"),
+			},
+			wantCount:     0,
+			wantSummaries: nil,
+		},
+		{
+			name: "single event with empty response status",
+			events: []*MeetingInfo{
+				makeMeetingWithStatus("Unknown Meeting", ""),
+			},
+			wantCount:     0,
+			wantSummaries: nil,
+		},
+		{
+			name: "mix of all response statuses",
+			events: []*MeetingInfo{
+				makeMeetingWithStatus("Accepted 1", "accepted"),
+				makeMeetingWithStatus("Declined 1", "declined"),
+				makeMeetingWithStatus("Tentative 1", "tentative"),
+				makeMeetingWithStatus("NeedsAction 1", "needsAction"),
+				makeMeetingWithStatus("Accepted 2", "accepted"),
+				makeMeetingWithStatus("Tentative 2", "tentative"),
+			},
+			wantCount:     4,
+			wantSummaries: []string{"Accepted 1", "Tentative 1", "Accepted 2", "Tentative 2"},
+		},
+		{
+			name: "all declined events",
+			events: []*MeetingInfo{
+				makeMeetingWithStatus("Declined 1", "declined"),
+				makeMeetingWithStatus("Declined 2", "declined"),
+				makeMeetingWithStatus("Declined 3", "declined"),
+			},
+			wantCount:     0,
+			wantSummaries: nil,
+		},
+		{
+			name: "all accepted events",
+			events: []*MeetingInfo{
+				makeMeetingWithStatus("Accepted 1", "accepted"),
+				makeMeetingWithStatus("Accepted 2", "accepted"),
+				makeMeetingWithStatus("Accepted 3", "accepted"),
+			},
+			wantCount:     3,
+			wantSummaries: []string{"Accepted 1", "Accepted 2", "Accepted 3"},
+		},
+		{
+			name: "all tentative events",
+			events: []*MeetingInfo{
+				makeMeetingWithStatus("Tentative 1", "tentative"),
+				makeMeetingWithStatus("Tentative 2", "tentative"),
+			},
+			wantCount:     2,
+			wantSummaries: []string{"Tentative 1", "Tentative 2"},
+		},
+		{
+			name: "all needsAction events (pending responses)",
+			events: []*MeetingInfo{
+				makeMeetingWithStatus("Pending 1", "needsAction"),
+				makeMeetingWithStatus("Pending 2", "needsAction"),
+			},
+			wantCount:     0,
+			wantSummaries: nil,
+		},
+		{
+			name: "accepted and tentative only",
+			events: []*MeetingInfo{
+				makeMeetingWithStatus("Accepted", "accepted"),
+				makeMeetingWithStatus("Tentative", "tentative"),
+			},
+			wantCount:     2,
+			wantSummaries: []string{"Accepted", "Tentative"},
+		},
+		{
+			name: "declined and needsAction only",
+			events: []*MeetingInfo{
+				makeMeetingWithStatus("Declined", "declined"),
+				makeMeetingWithStatus("Pending", "needsAction"),
+			},
+			wantCount:     0,
+			wantSummaries: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := FilterAccepted(tt.events)
+
+			if len(got) != tt.wantCount {
+				t.Errorf("FilterAccepted() returned %d events, want %d", len(got), tt.wantCount)
+			}
+
+			if tt.wantSummaries != nil {
+				for i, event := range got {
+					if i >= len(tt.wantSummaries) {
+						t.Errorf("FilterAccepted() returned more events than expected")
+						break
+					}
+					if event.Summary != tt.wantSummaries[i] {
+						t.Errorf("FilterAccepted()[%d].Summary = %q, want %q", i, event.Summary, tt.wantSummaries[i])
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestFilterAccepted_PreservesEventOrder(t *testing.T) {
+	fixedNow := time.Date(2026, 1, 14, 10, 0, 0, 0, time.UTC)
+
+	events := []*MeetingInfo{
+		{Summary: "First", Start: fixedNow, End: fixedNow.Add(1 * time.Hour), SelfResponseStatus: "accepted"},
+		{Summary: "Second", Start: fixedNow.Add(1 * time.Hour), End: fixedNow.Add(2 * time.Hour), SelfResponseStatus: "declined"},
+		{Summary: "Third", Start: fixedNow.Add(2 * time.Hour), End: fixedNow.Add(3 * time.Hour), SelfResponseStatus: "tentative"},
+		{Summary: "Fourth", Start: fixedNow.Add(3 * time.Hour), End: fixedNow.Add(4 * time.Hour), SelfResponseStatus: "accepted"},
+	}
+
+	got := FilterAccepted(events)
+
+	expectedOrder := []string{"First", "Third", "Fourth"}
+	if len(got) != len(expectedOrder) {
+		t.Fatalf("FilterAccepted() returned %d events, want %d", len(got), len(expectedOrder))
+	}
+
+	for i, event := range got {
+		if event.Summary != expectedOrder[i] {
+			t.Errorf("FilterAccepted()[%d].Summary = %q, want %q", i, event.Summary, expectedOrder[i])
+		}
+	}
+}
+
+func TestFilterAccepted_DoesNotModifyOriginalSlice(t *testing.T) {
+	fixedNow := time.Date(2026, 1, 14, 10, 0, 0, 0, time.UTC)
+
+	original := []*MeetingInfo{
+		{Summary: "Accepted", Start: fixedNow, End: fixedNow.Add(1 * time.Hour), SelfResponseStatus: "accepted"},
+		{Summary: "Declined", Start: fixedNow.Add(1 * time.Hour), End: fixedNow.Add(2 * time.Hour), SelfResponseStatus: "declined"},
+	}
+
+	originalLen := len(original)
+	originalFirstSummary := original[0].Summary
+	originalSecondSummary := original[1].Summary
+
+	_ = FilterAccepted(original)
+
+	if len(original) != originalLen {
+		t.Errorf("Original slice length changed from %d to %d", originalLen, len(original))
+	}
+	if original[0].Summary != originalFirstSummary {
+		t.Errorf("Original slice first element changed")
+	}
+	if original[1].Summary != originalSecondSummary {
+		t.Errorf("Original slice second element changed")
+	}
+}
+
+func TestFilterAccepted_WithMeetingStatusIntegration(t *testing.T) {
+	// Test that FilterAccepted works correctly with GetMeetingStatus
+	now := time.Date(2026, 1, 14, 10, 30, 0, 0, time.UTC)
+
+	events := []*MeetingInfo{
+		// Current meeting - declined (should be filtered out)
+		{
+			Summary:            "Declined Current",
+			Start:              now.Add(-30 * time.Minute),
+			End:                now.Add(30 * time.Minute),
+			SelfResponseStatus: "declined",
+		},
+		// Current meeting - accepted (should be kept)
+		{
+			Summary:            "Accepted Current",
+			Start:              now.Add(-15 * time.Minute),
+			End:                now.Add(45 * time.Minute),
+			SelfResponseStatus: "accepted",
+		},
+		// Next meeting - needsAction (should be filtered out)
+		{
+			Summary:            "Pending Next",
+			Start:              now.Add(1 * time.Hour),
+			End:                now.Add(2 * time.Hour),
+			SelfResponseStatus: "needsAction",
+		},
+		// Next meeting - tentative (should be kept)
+		{
+			Summary:            "Maybe Next",
+			Start:              now.Add(2 * time.Hour),
+			End:                now.Add(3 * time.Hour),
+			SelfResponseStatus: "tentative",
+		},
+	}
+
+	filtered := FilterAccepted(events)
+
+	if len(filtered) != 2 {
+		t.Fatalf("FilterAccepted() returned %d events, want 2", len(filtered))
+	}
+
+	if filtered[0].Summary != "Accepted Current" {
+		t.Errorf("First filtered event should be 'Accepted Current', got %q", filtered[0].Summary)
+	}
+	if filtered[1].Summary != "Maybe Next" {
+		t.Errorf("Second filtered event should be 'Maybe Next', got %q", filtered[1].Summary)
+	}
+}
