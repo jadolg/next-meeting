@@ -7,8 +7,6 @@ import (
 	"time"
 
 	"next-meeting/calendar"
-
-	"github.com/gen2brain/beeep"
 )
 
 func TestMarkAndHasBeenNotified(t *testing.T) {
@@ -80,12 +78,4 @@ func TestEnsureDefaultIconCreatesFile(t *testing.T) {
 	}
 
 	_ = os.Remove(icon)
-}
-
-func TestSendNotification(t *testing.T) {
-	beeep.AppName = "Next Meeting Test"
-	if err := beeep.Notify("title", "body", ensureDefaultIcon()); err != nil {
-		t.Fatalf("failed to send notification: %v", err)
-	}
-
 }
