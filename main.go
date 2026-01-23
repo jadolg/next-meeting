@@ -21,7 +21,7 @@ func main() {
 	clearCache := flag.Bool("clear-cache", false, "Clear the calendar cache")
 	login := flag.Bool("login", false, "Login to Google Calendar")
 	onlyAccepted := flag.Bool("only-accepted", false, "Only show meetings you have accepted")
-	notifyThreshold := flag.String("notify", "", "Send notification if next meeting starts within this duration (e.g., 5m, 1h)")
+	notifyThreshold := flag.Duration("notify", 0, "Send notification if next meeting starts within this duration (e.g., 5m, 1h)")
 	flag.Parse()
 
 	ctx := context.Background()
@@ -76,17 +76,12 @@ func main() {
 	status := calendar.GetMeetingStatus(events)
 
 	// Handle --notify flag
-	if *notifyThreshold != "" {
-		threshold, err := time.ParseDuration(*notifyThreshold)
-		if err != nil {
-			errorAndExit("Invalid notify duration: %v\n", err)
-		}
-
+	if *notifyThreshold > 0 {
 		// Clean old notification tracking files
 		notify.CleanOldNotifications()
 
 		// Check if we should send a notification
-		if meeting := notify.ShouldNotify(status, threshold); meeting != nil {
+		if meeting := notify.ShouldNotify(status, *notifyThreshold); meeting != nil {
 			startsIn := time.Until(meeting.Start)
 			if err := notify.SendNotification(meeting, startsIn); err != nil {
 				fmt.Fprintf(os.Stderr, "Warning: failed to send notification: %v\n", err)
