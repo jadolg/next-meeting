@@ -102,12 +102,16 @@ func MarkNotified(meeting *calendar.MeetingInfo) error {
 
 func SendNotification(meeting *calendar.MeetingInfo, startsIn time.Duration) error {
 	beeep.AppName = "Next Meeting"
-	title := meeting.Summary
-	var body string
+	body := "Upcoming meeting starting soon"
+	var title string
 	if startsIn < time.Minute {
-		body = fmt.Sprintf("Upcoming meeting — starting now")
+		title = fmt.Sprintf("🕐 %s — starting now", meeting.Summary)
 	} else {
-		body = fmt.Sprintf("Upcoming meeting — in %s", calendar.FormatDuration(startsIn))
+		title = fmt.Sprintf("🕐 %s — in %s", meeting.Summary, calendar.FormatDuration(startsIn))
+	}
+
+	if meeting.HangoutLink != "" {
+		body += fmt.Sprintf(": %s", meeting.HangoutLink)
 	}
 
 	icon := ensureDefaultIcon()
