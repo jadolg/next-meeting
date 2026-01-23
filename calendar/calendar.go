@@ -17,6 +17,7 @@ type MeetingInfo struct {
 	End                time.Time
 	IsAllDay           bool
 	Location           string
+	HangoutLink        string // Google Meet / Hangout link if available
 	Attendees          int
 	SelfResponseStatus string // The current user's response status (accepted, declined, tentative, needsAction)
 }
@@ -87,6 +88,7 @@ func (s *Service) GetTodayEvents(ctx context.Context) ([]*MeetingInfo, error) {
 			Start:              start,
 			End:                end,
 			Location:           item.Location,
+			HangoutLink:        item.HangoutLink,
 			Attendees:          len(item.Attendees),
 			SelfResponseStatus: getSelfResponseStatus(item),
 		}
