@@ -56,7 +56,8 @@ func main() {
 
 	// Check if logged in
 	if !auth.IsLoggedIn(ctx) {
-		errorAndExit("🔒 Not logged in. Run with --login to authenticate.", nil)
+		fmt.Println("🔒 Not logged in")
+		os.Exit(0)
 	}
 
 	// Try to read events from cache first
