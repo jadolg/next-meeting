@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 
 	"github.com/pkg/browser"
 	"golang.org/x/oauth2"
@@ -15,82 +16,76 @@ import (
 
 const redirectURL = "http://localhost:8085/callback"
 
-// GetOAuthConfig returns the OAuth2 configuration
-func GetOAuthConfig() *oauth2.Config {
+func getOAuthConfig() (*oauth2.Config, error) {
+	if err := loadCredentials(); err != nil {
+		return nil, err
+	}
 	return &oauth2.Config{
-		ClientID:     ClientID(),
-		ClientSecret: ClientSecret(),
+		ClientID:     creds.Installed.ClientID,
+		ClientSecret: creds.Installed.ClientSecret,
 		RedirectURL:  redirectURL,
 		Scopes:       []string{calendar.CalendarReadonlyScope},
 		Endpoint:     google.Endpoint,
+	}, nil
+}
+
+// loadValidToken loads the stored token, refreshes it if needed, and saves it back.
+func loadValidToken(ctx context.Context, config *oauth2.Config) (*oauth2.Token, error) {
+	token, err := keyring.LoadToken()
+	if err != nil || token == nil {
+		return nil, fmt.Errorf("not logged in")
 	}
+	tokenSource := config.TokenSource(ctx, token)
+	newToken, err := tokenSource.Token()
+	if err != nil {
+		return nil, fmt.Errorf("token expired, please login again")
+	}
+	if newToken.AccessToken != token.AccessToken {
+		if saveErr := keyring.SaveToken(newToken); saveErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not save refreshed token: %v\n", saveErr)
+		}
+	}
+	return newToken, nil
 }
 
 // IsLoggedIn checks if we have a valid token stored
 func IsLoggedIn(ctx context.Context) bool {
-	config := GetOAuthConfig()
-	token, err := keyring.LoadToken()
-	if err != nil || token == nil {
-		return false
-	}
-	// Check if token is valid or can be refreshed
-	tokenSource := config.TokenSource(ctx, token)
-	newToken, err := tokenSource.Token()
+	config, err := getOAuthConfig()
 	if err != nil {
 		return false
 	}
-	// Save refreshed token if needed
-	if newToken.AccessToken != token.AccessToken {
-		err := keyring.SaveToken(newToken)
-		if err != nil {
-			return false
-		}
-	}
-	return true
+	_, err = loadValidToken(ctx, config)
+	return err == nil
 }
 
 // GetClient returns an authenticated HTTP client.
 // It first tries to load a token from the keyring.
 // If no token exists or the token is invalid, it returns an error.
 func GetClient(ctx context.Context) (*http.Client, error) {
-	config := GetOAuthConfig()
-
-	// Try to load existing token from keyring
-	token, err := keyring.LoadToken()
-	if err != nil || token == nil {
-		return nil, fmt.Errorf("not logged in")
-	}
-
-	// Check if token is valid or can be refreshed
-	tokenSource := config.TokenSource(ctx, token)
-	newToken, err := tokenSource.Token()
+	config, err := getOAuthConfig()
 	if err != nil {
-		return nil, fmt.Errorf("token expired, please login again")
+		return nil, err
 	}
-
-	// Token is valid (possibly refreshed)
-	if newToken.AccessToken != token.AccessToken {
-		// Token was refreshed, save the new one
-		if saveErr := keyring.SaveToken(newToken); saveErr != nil {
-			fmt.Printf("Warning: could not save refreshed token: %v\n", saveErr)
-		}
+	token, err := loadValidToken(ctx, config)
+	if err != nil {
+		return nil, err
 	}
-	return config.Client(ctx, newToken), nil
+	return config.Client(ctx, token), nil
 }
 
 // Login initiates the OAuth2 flow and saves the token
 func Login(ctx context.Context) error {
-	config := GetOAuthConfig()
+	config, err := getOAuthConfig()
+	if err != nil {
+		return err
+	}
 	token, err := getTokenFromWeb(ctx, config)
 	if err != nil {
 		return fmt.Errorf("unable to get token from web: %w", err)
 	}
-
-	// Save token to keyring
 	if err := keyring.SaveToken(token); err != nil {
 		return fmt.Errorf("could not save token to keyring: %w", err)
 	}
-
 	return nil
 }
 

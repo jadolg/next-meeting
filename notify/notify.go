@@ -11,7 +11,6 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 
 	"next-meeting/calendar"
@@ -24,55 +23,45 @@ const notifyDir = "next-meeting-notify"
 //go:embed icon.png
 var defaultIconBytes []byte
 
-var (
-	iconOnce        sync.Once
-	defaultIconPath string
-)
+func init() {
+	beeep.AppName = "Next Meeting"
+}
 
 func getNotifyDir() string {
 	return filepath.Join(os.TempDir(), notifyDir)
 }
 
 func ensureDefaultIcon() string {
-	iconOnce.Do(func() {
-		p := filepath.Join(os.TempDir(), "next-meeting-icon.png")
-		if _, err := os.Stat(p); err == nil {
-			defaultIconPath = p
-			return
-		}
-		if len(defaultIconBytes) == 0 {
-			defaultIconPath = ""
-			return
-		}
+	p := filepath.Join(os.TempDir(), "next-meeting-icon.png")
+	if _, err := os.Stat(p); err == nil {
+		return p
+	}
+	if len(defaultIconBytes) == 0 {
+		return ""
+	}
 
-		// Decode the embedded bytes and re-encode as truecolor PNG (NRGBA)
-		img, _, err := image.Decode(bytes.NewReader(defaultIconBytes))
-		if err != nil {
-			// fallback: write raw bytes
-			if err := os.WriteFile(p, defaultIconBytes, 0644); err != nil {
-				defaultIconPath = ""
-				return
-			}
-			defaultIconPath = p
-			return
+	// Decode the embedded bytes and re-encode as truecolor PNG (NRGBA)
+	img, _, err := image.Decode(bytes.NewReader(defaultIconBytes))
+	if err != nil {
+		// fallback: write raw bytes
+		if err := os.WriteFile(p, defaultIconBytes, 0644); err != nil {
+			return ""
 		}
+		return p
+	}
 
-		dst := image.NewNRGBA(img.Bounds())
-		draw.Draw(dst, dst.Bounds(), img, img.Bounds().Min, draw.Src)
+	dst := image.NewNRGBA(img.Bounds())
+	draw.Draw(dst, dst.Bounds(), img, img.Bounds().Min, draw.Src)
 
-		f, err := os.Create(p)
-		if err != nil {
-			defaultIconPath = ""
-			return
-		}
-		defer f.Close()
-		if err := png.Encode(f, dst); err != nil {
-			defaultIconPath = ""
-			return
-		}
-		defaultIconPath = p
-	})
-	return defaultIconPath
+	f, err := os.Create(p)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	if err := png.Encode(f, dst); err != nil {
+		return ""
+	}
+	return p
 }
 
 func getNotificationID(meeting *calendar.MeetingInfo) string {
@@ -101,7 +90,6 @@ func MarkNotified(meeting *calendar.MeetingInfo) error {
 }
 
 func SendNotification(meeting *calendar.MeetingInfo, startsIn time.Duration) error {
-	beeep.AppName = "Next Meeting"
 	body := "Upcoming meeting starting soon"
 	var title string
 	if startsIn < time.Minute {
