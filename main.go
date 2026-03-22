@@ -74,7 +74,7 @@ func main() {
 	}
 
 	// Calculate current/next meeting status from events (always fresh calculation)
-	status := calendar.GetMeetingStatus(events)
+	status := calendar.GetMeetingStatus(events, time.Now())
 
 	// Handle --notify flag
 	if *notifyThreshold != "" {
@@ -138,7 +138,7 @@ func buildParts(status *calendar.MeetingStatus) []string {
 	return parts
 }
 
-func getAndCacheEvents(ctx context.Context) (events []*calendar.MeetingInfo) {
+func getAndCacheEvents(ctx context.Context) []*calendar.MeetingInfo {
 	// Get authenticated client
 	client, err := auth.GetClient(ctx)
 	if err != nil {
@@ -152,17 +152,18 @@ func getAndCacheEvents(ctx context.Context) (events []*calendar.MeetingInfo) {
 	}
 
 	// Get events from API
-	events, err = calSvc.GetTodayEvents(ctx)
+	events, err := calSvc.GetTodayEvents(ctx)
 	if err != nil {
 		if isNetworkError(err) {
-			errorAndExit("📡 Calendar Offline", nil)
+			fmt.Fprintln(os.Stderr, "📡 Calendar Offline")
+			os.Exit(1)
 		}
 		errorAndExit("Error getting events: %v\n", err)
 	}
 
-	// Cache the events
+	// Cache the events (non-fatal if it fails)
 	if err := cache.Write(events); err != nil {
-		errorAndExit("Warning: failed to cache results: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Warning: failed to cache results: %v\n", err)
 	}
 	return events
 }

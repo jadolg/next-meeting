@@ -261,26 +261,7 @@ func TestGetMeetingStatus(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Since GetMeetingStatus uses time.Now() internally, we need to
-			// adjust our test events relative to the actual current time
-			// for the test to work correctly. We'll create adjusted events.
-			adjustedEvents := make([]*MeetingInfo, len(tt.events))
-			now := time.Now()
-			offset := now.Sub(fixedNow)
-
-			for i, evt := range tt.events {
-				if evt != nil {
-					adjustedEvents[i] = &MeetingInfo{
-						Summary:   evt.Summary,
-						Start:     evt.Start.Add(offset),
-						End:       evt.End.Add(offset),
-						Location:  evt.Location,
-						Attendees: evt.Attendees,
-					}
-				}
-			}
-
-			status := GetMeetingStatus(adjustedEvents)
+			status := GetMeetingStatus(tt.events, tt.now)
 
 			if status == nil {
 				t.Fatal("GetMeetingStatus returned nil")
@@ -330,7 +311,7 @@ func TestGetMeetingStatus_BoundaryConditions(t *testing.T) {
 			},
 		}
 
-		status := GetMeetingStatus(events)
+		status := GetMeetingStatus(events, now)
 
 		// !now.Before(meeting.Start) is true when now == Start
 		// now.Before(meeting.End) is true
@@ -353,7 +334,7 @@ func TestGetMeetingStatus_BoundaryConditions(t *testing.T) {
 			},
 		}
 
-		status := GetMeetingStatus(events)
+		status := GetMeetingStatus(events, now)
 
 		// !now.Before(meeting.Start) is true
 		// now.Before(meeting.End) is false when now == End
@@ -376,7 +357,7 @@ func TestGetMeetingStatus_BoundaryConditions(t *testing.T) {
 			},
 		}
 
-		status := GetMeetingStatus(events)
+		status := GetMeetingStatus(events, now)
 
 		if status.CurrentMeeting == nil {
 			t.Fatal("expected meeting to be CurrentMeeting (ending soon)")
@@ -394,7 +375,7 @@ func TestGetMeetingStatus_BoundaryConditions(t *testing.T) {
 			},
 		}
 
-		status := GetMeetingStatus(events)
+		status := GetMeetingStatus(events, now)
 
 		if status.CurrentMeeting == nil {
 			t.Fatal("expected meeting to be CurrentMeeting (1ns after start)")
@@ -413,7 +394,7 @@ func TestGetMeetingStatus_BoundaryConditions(t *testing.T) {
 			},
 		}
 
-		status := GetMeetingStatus(events)
+		status := GetMeetingStatus(events, now)
 
 		if status.CurrentMeeting != nil {
 			t.Errorf("expected no CurrentMeeting for meeting starting soon")
@@ -450,7 +431,7 @@ func TestGetMeetingStatus_ReturnValueIntegrity(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				status := GetMeetingStatus(tc.events)
+				status := GetMeetingStatus(tc.events, now)
 				if status == nil {
 					t.Error("GetMeetingStatus should never return nil")
 				}
@@ -468,7 +449,7 @@ func TestGetMeetingStatus_ReturnValueIntegrity(t *testing.T) {
 		}
 		events := []*MeetingInfo{meeting}
 
-		status := GetMeetingStatus(events)
+		status := GetMeetingStatus(events, now)
 
 		if status.CurrentMeeting != meeting {
 			t.Error("CurrentMeeting should point to the original MeetingInfo pointer")
@@ -485,7 +466,7 @@ func TestGetMeetingStatus_ReturnValueIntegrity(t *testing.T) {
 		}
 		events := []*MeetingInfo{meeting}
 
-		status := GetMeetingStatus(events)
+		status := GetMeetingStatus(events, now)
 
 		if status.NextMeeting != meeting {
 			t.Error("NextMeeting should point to the original MeetingInfo pointer")
@@ -506,7 +487,7 @@ func TestGetMeetingStatus_LargeDataSets(t *testing.T) {
 			}
 		}
 
-		status := GetMeetingStatus(events)
+		status := GetMeetingStatus(events, now)
 
 		if status.CurrentMeeting != nil {
 			t.Error("expected no CurrentMeeting for all past meetings")
@@ -526,7 +507,7 @@ func TestGetMeetingStatus_LargeDataSets(t *testing.T) {
 			}
 		}
 
-		status := GetMeetingStatus(events)
+		status := GetMeetingStatus(events, now)
 
 		if status.NextMeeting == nil {
 			t.Fatal("expected NextMeeting to exist")
@@ -566,7 +547,7 @@ func TestGetMeetingStatus_LargeDataSets(t *testing.T) {
 			}
 		}
 
-		status := GetMeetingStatus(events)
+		status := GetMeetingStatus(events, now)
 
 		if status.CurrentMeeting == nil || status.CurrentMeeting.Summary != "Current" {
 			t.Errorf("expected CurrentMeeting 'Current', got %+v", status.CurrentMeeting)

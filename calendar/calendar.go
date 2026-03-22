@@ -132,8 +132,7 @@ func FilterAccepted(events []*MeetingInfo) []*MeetingInfo {
 }
 
 // GetMeetingStatus calculates current and next meetings from a list of events
-func GetMeetingStatus(events []*MeetingInfo) *MeetingStatus {
-	now := time.Now()
+func GetMeetingStatus(events []*MeetingInfo, now time.Time) *MeetingStatus {
 	status := &MeetingStatus{}
 
 	for _, meeting := range events {

@@ -56,21 +56,3 @@ func loadCredentials() error {
 	creds = &c
 	return nil
 }
-
-// ClientID returns the OAuth2 client ID
-func ClientID() string {
-	if err := loadCredentials(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-	return creds.Installed.ClientID
-}
-
-// ClientSecret returns the OAuth2 client secret
-func ClientSecret() string {
-	if err := loadCredentials(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-	return creds.Installed.ClientSecret
-}
