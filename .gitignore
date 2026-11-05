@@ -1,6 +1,14 @@
 .vscode
 next-meeting
+next-meeting.exe
 credentials.json
 .idea
 # Added by goreleaser init:
 dist/
+
+# Desktop UI (Tauri + Vite + Rust)
+ui/node_modules/
+ui/dist/
+ui/src-tauri/target/
+ui/src-tauri/gen/
+ui/src-tauri/binaries/next-meeting-*

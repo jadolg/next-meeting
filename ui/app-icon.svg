@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3B82F6"/>
+      <stop offset="100%" stop-color="#1D4ED8"/>
+    </linearGradient>
+    <linearGradient id="calHeader" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FB923C"/>
+      <stop offset="100%" stop-color="#EA580C"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded squircle background -->
+  <rect x="32" y="32" width="960" height="960" rx="220" ry="220" fill="url(#bg)"/>
+
+  <!-- Clock outer ring -->
+  <circle cx="448" cy="448" r="296" fill="#1E40AF"/>
+  <circle cx="448" cy="448" r="236" fill="#FFFFFF"/>
+
+  <!-- Clock hands (pointing ~10:00 like notify/icon.png) -->
+  <line x1="448" y1="448" x2="448" y2="274" stroke="#2563EB" stroke-width="38" stroke-linecap="round"/>
+  <line x1="448" y1="448" x2="322" y2="376" stroke="#2563EB" stroke-width="38" stroke-linecap="round"/>
+  <circle cx="448" cy="448" r="28" fill="#1D4ED8"/>
+
+  <!-- Calendar badge shadow -->
+  <rect x="498" y="482" width="384" height="368" rx="54" ry="54" fill="#172554" opacity="0.28"/>
+
+  <!-- Calendar badge body -->
+  <rect x="492" y="472" width="384" height="368" rx="52" ry="52" fill="#60A5FA"/>
+  <rect x="520" y="576" width="328" height="236" rx="28" ry="28" fill="#FFFFFF"/>
+
+  <!-- Calendar top header -->
+  <path d="M492 524 C492 495.28 515.28 472 544 472 H824 C852.72 472 876 495.28 876 524 V576 H492 Z" fill="url(#calHeader)"/>
+
+  <!-- Calendar rings -->
+  <rect x="576" y="434" width="38" height="80" rx="19" ry="19" fill="#1E40AF"/>
+  <rect x="754" y="434" width="38" height="80" rx="19" ry="19" fill="#1E40AF"/>
+
+  <!-- Calendar grid cells -->
+  <rect x="652" y="614" width="68" height="68" rx="12" ry="12" fill="#F97316"/>
+  <rect x="744" y="614" width="68" height="68" rx="12" ry="12" fill="#60A5FA"/>
+  <rect x="560" y="706" width="68" height="68" rx="12" ry="12" fill="#60A5FA"/>
+  <rect x="652" y="706" width="68" height="68" rx="12" ry="12" fill="#60A5FA"/>
+</svg>
