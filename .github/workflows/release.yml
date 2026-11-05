@@ -3,9 +3,12 @@ name: Release
 on:
   release:
     types: [ created ]
+  workflow_dispatch:
 
 jobs:
   goreleaser:
+    name: Release CLI (GoReleaser)
+    if: github.event_name == 'release'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -14,10 +17,12 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
         with:
@@ -26,3 +31,115 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  release-ui:
+    name: Release UI (${{ matrix.label }})
+    runs-on: ${{ matrix.platform }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: linux-x86_64
+            platform: ubuntu-latest
+            args: ""
+          - label: windows-x86_64
+            platform: windows-latest
+            args: ""
+          - label: macos-aarch64
+            platform: macos-latest
+            args: "--target aarch64-apple-darwin"
+          - label: macos-x86_64
+            platform: macos-latest
+            args: "--target x86_64-apple-darwin"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Cache Rust build artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ui/src-tauri
+          key: ${{ matrix.label }}
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libxdo-dev \
+            libssl-dev \
+            xdg-utils \
+            file \
+            wget \
+            build-essential
+
+      - name: Install frontend dependencies
+        working-directory: ui
+        run: npm ci
+
+      - name: Sync UI bundle version with release tag
+        if: github.event_name == 'release'
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          node -e '
+            const fs = require("fs");
+            const raw = (process.env.RELEASE_TAG || "").replace(/^v/i, "");
+            const match = raw.match(/^\d+\.\d+\.\d+/);
+            if (match) {
+              const ver = match[0];
+              for (const p of ["ui/package.json", "ui/src-tauri/tauri.conf.json"]) {
+                const json = JSON.parse(fs.readFileSync(p, "utf8"));
+                json.version = ver;
+                fs.writeFileSync(p, JSON.stringify(json, null, 2) + "\n");
+              }
+              console.log("Synced UI version to", ver);
+            }
+          '
+
+      - name: Build and upload Tauri UI release assets
+        if: github.event_name == 'release'
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        with:
+          projectPath: ./ui
+          releaseId: ${{ github.event.release.id }}
+          releaseDraft: ${{ github.event.release.draft }}
+          prerelease: ${{ github.event.release.prerelease }}
+          args: ${{ matrix.args }}
+
+      - name: Dry-run Tauri UI build (workflow_dispatch)
+        if: github.event_name != 'release'
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        with:
+          projectPath: ./ui
+          args: ${{ matrix.args }}
