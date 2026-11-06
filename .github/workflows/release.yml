@@ -103,20 +103,27 @@ jobs:
 
       - name: Sync UI bundle version with release tag
         if: github.event_name == 'release'
+        shell: bash
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           node -e '
             const fs = require("fs");
             const raw = (process.env.RELEASE_TAG || "").replace(/^v/i, "");
-            const match = raw.match(/^\d+\.\d+\.\d+/);
+            const match = raw.match(/^(\d+)\.(\d+)(?:\.(\d+))?/);
             if (match) {
-              const ver = match[0];
+              const ver = `${match[1]}.${match[2]}.${match[3] || "0"}`;
               for (const p of ["ui/package.json", "ui/src-tauri/tauri.conf.json"]) {
                 const json = JSON.parse(fs.readFileSync(p, "utf8"));
                 json.version = ver;
                 fs.writeFileSync(p, JSON.stringify(json, null, 2) + "\n");
               }
+              const cargoPath = "ui/src-tauri/Cargo.toml";
+              const cargo = fs.readFileSync(cargoPath, "utf8").replace(
+                /^version\s*=\s*"[^"]+"/m,
+                `version = "${ver}"`
+              );
+              fs.writeFileSync(cargoPath, cargo);
               console.log("Synced UI version to", ver);
             }
           '
@@ -132,6 +139,8 @@ jobs:
           releaseId: ${{ github.event.release.id }}
           releaseDraft: ${{ github.event.release.draft }}
           prerelease: ${{ github.event.release.prerelease }}
+          uploadUpdaterJson: false
+          uploadUpdaterSignatures: false
           args: ${{ matrix.args }}
 
       - name: Dry-run Tauri UI build (workflow_dispatch)
@@ -142,4 +151,7 @@ jobs:
           APPIMAGE_EXTRACT_AND_RUN: "1"
         with:
           projectPath: ./ui
+          uploadUpdaterJson: false
+          uploadUpdaterSignatures: false
+          uploadWorkflowArtifacts: true
           args: ${{ matrix.args }}

@@ -1,14 +1,75 @@
-.vscode
-next-meeting
-next-meeting.exe
-credentials.json
-.idea
-# Added by goreleaser init:
+# Go & CLI binaries / test artifacts
+/next-meeting
+/next-meeting.exe
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage.txt
+coverage.html
+vendor/
+
+# GoReleaser build output
 dist/
 
-# Desktop UI (Tauri + Vite + Rust)
+# OAuth secrets, tokens & local runtime configuration
+credentials.json
+**/credentials.json
+token.json
+ui-settings.json
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Desktop UI — Node.js, Vite & TypeScript
 ui/node_modules/
 ui/dist/
+ui/dist-ssr/
+ui/.vite/
+ui/*.tsbuildinfo
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.npm/
+.eslintcache
+
+# Desktop UI — Rust, Cargo & Tauri bundles
 ui/src-tauri/target/
 ui/src-tauri/gen/
-ui/src-tauri/binaries/next-meeting-*
+ui/src-tauri/binaries/
+ui/src-tauri/WixTools/
+ui/src-tauri/webview2/
+*.pdb
+*.msi
+*.dmg
+*.AppImage
+*.deb
+*.rpm
+
+# IDEs & editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS metadata (Windows, macOS, Linux)
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Logs & temporary files
+*.log
+tmp/
+temp/
