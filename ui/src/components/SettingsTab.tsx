@@ -350,7 +350,7 @@ export function SettingsTab({
         <div className="prefs-list">
           <div className="pref-row">
             <div>
-              <strong>Auto-Sync Interval</strong>
+              <strong id="pref-poll-interval-title">Auto-Sync Interval</strong>
               <p className="muted-text small-text">
                 How frequently the UI polls the <code>next-meeting</code> CLI
                 engine (countdowns always tick locally every second).
@@ -358,6 +358,7 @@ export function SettingsTab({
             </div>
             <select
               className="select-input"
+              aria-labelledby="pref-poll-interval-title"
               value={settings.pollIntervalSeconds}
               onChange={(e) =>
                 onUpdateSettings(
@@ -379,13 +380,14 @@ export function SettingsTab({
 
           <div className="pref-row">
             <div>
-              <strong>Color Theme</strong>
+              <strong id="pref-theme-title">Color Theme</strong>
               <p className="muted-text small-text">
                 Match your operating system theme or lock dark/light appearance.
               </p>
             </div>
             <select
               className="select-input"
+              aria-labelledby="pref-theme-title"
               value={settings.theme}
               onChange={(e) =>
                 onUpdateSettings(
@@ -405,7 +407,9 @@ export function SettingsTab({
 
           <div className="pref-row">
             <div>
-              <strong>Minimize to System Tray on Close</strong>
+              <strong id="pref-minimize-to-tray-title">
+                Minimize to System Tray on Close
+              </strong>
               <p className="muted-text small-text">
                 Keep meeting reminders and tray status active in the background
                 when closing the main window.
@@ -414,6 +418,7 @@ export function SettingsTab({
             <label className="switch">
               <input
                 type="checkbox"
+                aria-labelledby="pref-minimize-to-tray-title"
                 checked={settings.minimizeToTray}
                 onChange={(e) =>
                   onUpdateSettings(
@@ -428,7 +433,9 @@ export function SettingsTab({
 
           <div className="pref-row">
             <div>
-              <strong>Pin Window Always on Top</strong>
+              <strong id="pref-always-on-top-title">
+                Pin Window Always on Top
+              </strong>
               <p className="muted-text small-text">
                 Float Next Meeting above other desktop windows (great with
                 Compact Widget mode).
@@ -437,6 +444,7 @@ export function SettingsTab({
             <label className="switch">
               <input
                 type="checkbox"
+                aria-labelledby="pref-always-on-top-title"
                 checked={settings.alwaysOnTop}
                 onChange={(e) =>
                   onUpdateSettings(
@@ -451,7 +459,9 @@ export function SettingsTab({
 
           <div className="pref-row pref-row-stack">
             <div>
-              <strong>CLI Binary Override (Optional)</strong>
+              <strong id="pref-cli-path-title">
+                CLI Binary Override (Optional)
+              </strong>
               <p className="muted-text small-text">
                 Leave blank to use the bundled optimized{" "}
                 <code>next-meeting</code> sidecar binary.
@@ -461,6 +471,7 @@ export function SettingsTab({
               <input
                 type="text"
                 className="text-input"
+                aria-labelledby="pref-cli-path-title"
                 placeholder="Default: Bundled next-meeting sidecar"
                 value={customBinDraft}
                 onChange={(e) => setCustomBinDraft(e.target.value)}

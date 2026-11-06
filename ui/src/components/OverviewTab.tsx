@@ -417,9 +417,10 @@ export function OverviewTab({
               <span className="flag-code">--only-accepted</span>
             </div>
           </div>
-          <label className="switch" aria-label="Toggle only accepted meetings">
+          <label className="switch">
             <input
               type="checkbox"
+              aria-label="Accepted meetings only (--only-accepted)"
               checked={settings.onlyAccepted}
               onChange={(e) =>
                 onUpdateSettings(
