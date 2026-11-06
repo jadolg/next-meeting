@@ -76,33 +76,39 @@ export function App() {
     [refreshHistory]
   );
 
+  // Full startup load: settings, snapshot and history together. "Retry Initialization"
+  // reuses it so a failed startup can never leave `settings` null after recovery (which
+  // would keep the app on the boot loader forever).
+  const initialize = useCallback(
+    async (trigger: string, isActive: () => boolean = () => true) => {
+      const [loadedSettings, initialSnap, initialHistory] = await Promise.all([
+        api.getSettings(),
+        api.getDashboardSnapshot(false, trigger),
+        api.getExecutionHistory(),
+      ]);
+      if (!isActive()) return;
+      setSettings(loadedSettings);
+      setSnapshot(initialSnap);
+      setHistory(initialHistory);
+      if (loadedSettings.compactMode) {
+        await api.setWindowCompact(true);
+      }
+    },
+    []
+  );
+
   // Initial load
   useEffect(() => {
     let mounted = true;
-    (async () => {
-      try {
-        const [loadedSettings, initialSnap, initialHistory] = await Promise.all([
-          api.getSettings(),
-          api.getDashboardSnapshot(false, "startup"),
-          api.getExecutionHistory(),
-        ]);
-        if (!mounted) return;
-        setSettings(loadedSettings);
-        setSnapshot(initialSnap);
-        setHistory(initialHistory);
-        if (loadedSettings.compactMode) {
-          await api.setWindowCompact(true);
-        }
-      } catch (err) {
-        if (mounted) {
-          setBootError(String(err));
-        }
+    initialize("startup", () => mounted).catch((err) => {
+      if (mounted) {
+        setBootError(String(err));
       }
-    })();
+    });
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [initialize]);
 
   // Apply theme attribute to document root
   useEffect(() => {
@@ -351,7 +357,7 @@ export function App() {
             className="btn btn-primary"
             onClick={() => {
               setBootError(null);
-              void performSync(false, "retry");
+              void initialize("retry").catch((err) => setBootError(String(err)));
             }}
           >
             Retry Initialization
