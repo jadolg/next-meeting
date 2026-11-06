@@ -1378,15 +1378,21 @@ pre {
   text-overflow: ellipsis;
 }
 
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
+/* Native <dialog> opened via showModal(): the UA centres it in the top layer and makes
+   the rest of the document inert, so only its chrome needs resetting. */
+.modal-dialog {
+  width: 500px;
+  max-width: calc(100vw - 36px);
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  overflow: visible;
+}
+
+.modal-dialog::backdrop {
   background: rgba(5, 8, 15, 0.72);
   backdrop-filter: blur(4px);
-  display: grid;
-  place-items: center;
-  padding: 18px;
-  z-index: 100;
 }
 
 .modal-card {

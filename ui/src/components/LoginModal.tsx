@@ -6,7 +6,7 @@ import {
   ShieldAlert,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface LoginModalProps {
   open: boolean;
@@ -26,6 +26,34 @@ export function LoginModal({
   onCancel,
 }: LoginModalProps) {
   const [copied, setCopied] = useState(false);
+  const dialogRef = useRef<HTMLDialogElement | null>(null);
+  // Latest onCancel without making it an effect dependency (the parent passes a fresh
+  // arrow every render, which would otherwise close and reopen the dialog each time).
+  const onCancelRef = useRef(onCancel);
+  useEffect(() => {
+    onCancelRef.current = onCancel;
+  });
+
+  // A native <dialog> opened with showModal() provides real modal behaviour that
+  // `aria-modal` alone does not: focus moves into the dialog, Tab cannot reach the
+  // (inert) background, Esc closes it, and focus returns to the opener on close.
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!open || !dialog) return;
+    if (!dialog.open) {
+      dialog.showModal();
+    }
+    // Esc (or any other native close) must also abort the CLI login.
+    const handleNativeClose = () => onCancelRef.current();
+    dialog.addEventListener("close", handleNativeClose);
+    return () => {
+      dialog.removeEventListener("close", handleNativeClose);
+      // Closing explicitly (rather than just unmounting) restores focus to the opener.
+      if (dialog.open) {
+        dialog.close();
+      }
+    };
+  }, [open]);
 
   if (!open) return null;
 
@@ -37,7 +65,11 @@ export function LoginModal({
   };
 
   return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true">
+    <dialog
+      ref={dialogRef}
+      className="modal-dialog"
+      aria-labelledby="login-modal-title"
+    >
       <div className="modal-card">
         <div className="modal-header">
           <div className="row-center">
@@ -46,7 +78,7 @@ export function LoginModal({
             ) : (
               <Loader2 size={19} className="spin accent-icon" />
             )}
-            <h3>Google Calendar Authorization</h3>
+            <h3 id="login-modal-title">Google Calendar Authorization</h3>
           </div>
           <button
             type="button"
@@ -103,6 +135,6 @@ export function LoginModal({
           </button>
         </div>
       </div>
-    </div>
+    </dialog>
   );
 }
