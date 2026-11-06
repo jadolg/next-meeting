@@ -548,12 +548,27 @@ fn compute_daily_stats(
     }
 }
 
+/// Exact stdout printed by the Go CLI (`main.go`) when no keyring token is present.
+const CLI_SIGNED_OUT_OUTPUT: &str = "🔒 Not logged in";
+/// Exact stderr line printed by the Go CLI when the Calendar API is unreachable.
+const CLI_OFFLINE_OUTPUT: &str = "📡 Calendar Offline";
+
+/// The signed-out message is the CLI's *entire* stdout. Meeting titles are also echoed to
+/// stdout, so substring checks would misclassify a title such as "🔒 Security review".
+fn cli_reports_signed_out(stdout: &str) -> bool {
+    stdout.trim() == CLI_SIGNED_OUT_OUTPUT
+}
+
+fn cli_reports_offline(stderr: &str) -> bool {
+    stderr.lines().any(|line| line.trim() == CLI_OFFLINE_OUTPUT)
+}
+
 fn classify_cli_result(
     record: &CliExecutionRecord,
     creds_exists: bool,
     creds_valid: bool,
 ) -> (AuthState, Option<String>) {
-    if record.stdout.contains("Not logged in") || record.stdout.contains("🔒") {
+    if cli_reports_signed_out(&record.stdout) {
         if !creds_exists || !creds_valid {
             return (
                 AuthState::MissingCredentials,
@@ -566,7 +581,7 @@ fn classify_cli_result(
         return (AuthState::NotLoggedIn, None);
     }
 
-    if record.stderr.contains("Calendar Offline") || record.stderr.contains("📡") {
+    if cli_reports_offline(&record.stderr) {
         return (
             AuthState::Offline,
             Some("Calendar is currently offline. Showing cached schedule if available.".to_string()),
@@ -1124,6 +1139,48 @@ mod tests {
             extract_join_details("", "Join via Zoom: https://company.zoom.us/j/123456789.");
         assert_eq!(z_url.as_deref(), Some("https://company.zoom.us/j/123456789"));
         assert_eq!(z_prov.as_deref(), Some("zoom"));
+    }
+
+    fn make_record(stdout: &str, stderr: &str, success: bool) -> CliExecutionRecord {
+        CliExecutionRecord {
+            id: 0,
+            timestamp: String::new(),
+            command: "next-meeting".to_string(),
+            args: Vec::new(),
+            stdout: stdout.to_string(),
+            stderr: stderr.to_string(),
+            exit_code: if success { 0 } else { 1 },
+            duration_ms: 0,
+            trigger: "test".to_string(),
+            success,
+        }
+    }
+
+    #[test]
+    fn classifies_signed_out_only_on_exact_cli_output() {
+        let signed_out = make_record("🔒 Not logged in", "", true);
+        assert_eq!(
+            classify_cli_result(&signed_out, true, true).0,
+            AuthState::NotLoggedIn
+        );
+        assert_eq!(
+            classify_cli_result(&signed_out, false, false).0,
+            AuthState::MissingCredentials
+        );
+
+        // Meeting titles are part of stdout and must not trigger the signed-out screen.
+        let titles = make_record(
+            "🔴 🔒 Security review (12m left) │ 🕐 Not logged in troubleshooting in 40m",
+            "",
+            true,
+        );
+        assert_eq!(
+            classify_cli_result(&titles, true, true).0,
+            AuthState::Authenticated
+        );
+
+        let offline = make_record("", "Warning: something\n📡 Calendar Offline", false);
+        assert_eq!(classify_cli_result(&offline, true, true).0, AuthState::Offline);
     }
 
     #[tokio::test]
