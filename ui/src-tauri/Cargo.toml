@@ -11,6 +11,12 @@ rust-version = "1.77.2"
 name = "next_meeting_ui_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+# Embeds `../dist` by default so standalone debug/release binaries never depend on `localhost:1420`.
+# `tauri dev` passes `--no-default-features` automatically to enable Vite HMR.
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
