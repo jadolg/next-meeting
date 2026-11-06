@@ -29,6 +29,11 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 pub struct EngineState {
     pub settings: Mutex<AppSettings>,
+    /// Serializes every CLI-backed engine operation (dashboard syncs, presets, cache
+    /// clearing, logout). The Go CLI is not safe to run concurrently against its own cache
+    /// and notification markers: two overlapping `--notify` runs can both pass the
+    /// "already notified" check and send duplicate alerts, and `--clear-cache` can race a
+    /// cache write.
     pub sync_lock: Mutex<()>,
     pub history: Mutex<VecDeque<CliExecutionRecord>>,
     pub active_login: Mutex<Option<Child>>,
@@ -648,12 +653,26 @@ fn classify_cli_result(
     (AuthState::Authenticated, None)
 }
 
+/// Runs a dashboard sync while holding `state.sync_lock` so it never overlaps with any other
+/// engine operation (presets, cache clearing, logout). Callers that already hold the lock
+/// must use [`sync_dashboard_locked`] instead to avoid re-entering the mutex.
 pub async fn sync_dashboard(
     state: &EngineState,
     force_refresh: bool,
     trigger: &str,
 ) -> Result<DashboardSnapshot, String> {
     let _guard = state.sync_lock.lock().await;
+    sync_dashboard_locked(state, force_refresh, trigger).await
+}
+
+/// Dashboard sync body. The caller **must** hold `state.sync_lock` for the whole duration
+/// (see [`sync_dashboard`]); this variant exists so multi-command actions can keep the lock
+/// across every CLI invocation they perform and then refresh the snapshot atomically.
+pub async fn sync_dashboard_locked(
+    state: &EngineState,
+    force_refresh: bool,
+    trigger: &str,
+) -> Result<DashboardSnapshot, String> {
     let settings = state.settings.lock().await.clone();
     let engine_info = resolve_engine_info(settings.custom_cli_path.as_deref());
     let creds_info = inspect_credentials();

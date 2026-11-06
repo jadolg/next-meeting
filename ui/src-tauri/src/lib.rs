@@ -8,7 +8,7 @@ use tauri::{AppHandle, Manager, State, WindowEvent};
 
 use crate::cli_engine::{
     cancel_oauth_login, execute_cli, resolve_engine_info, start_oauth_login, sync_dashboard,
-    validate_notify_duration, EngineState,
+    sync_dashboard_locked, validate_notify_duration, EngineState,
 };
 use crate::models::{
     AppSettings, CliExecutionRecord, CredentialsInfo, DashboardSnapshot, EngineInfo,
@@ -97,6 +97,10 @@ async fn logout_account(
     state: State<'_, EngineState>,
 ) -> Result<DashboardSnapshot, String> {
     cancel_oauth_login(&state).await;
+
+    // Hold the engine lock across the whole multi-command action so an automatic sync
+    // cannot interleave between `--clear`, `--clear-cache`, and the final refresh.
+    let _engine_guard = state.sync_lock.lock().await;
     let settings = state.settings.lock().await.clone();
     let engine = resolve_engine_info(settings.custom_cli_path.as_deref());
     if !engine.available {
@@ -119,7 +123,7 @@ async fn logout_account(
     )
     .await?;
 
-    let snapshot = sync_dashboard(&state, false, "auth").await?;
+    let snapshot = sync_dashboard_locked(&state, false, "auth").await?;
     update_tray_from_snapshot(&app, &snapshot);
     Ok(snapshot)
 }
@@ -129,6 +133,8 @@ async fn clear_cli_cache(
     app: AppHandle,
     state: State<'_, EngineState>,
 ) -> Result<CliExecutionRecord, String> {
+    // Serialize with syncs so `--clear-cache` cannot race a cache write in progress.
+    let _engine_guard = state.sync_lock.lock().await;
     let settings = state.settings.lock().await.clone();
     let engine = resolve_engine_info(settings.custom_cli_path.as_deref());
     if !engine.available {
@@ -143,7 +149,7 @@ async fn clear_cli_cache(
     )
     .await?;
 
-    if let Ok(snapshot) = sync_dashboard(&state, false, "action").await {
+    if let Ok(snapshot) = sync_dashboard_locked(&state, false, "action").await {
         update_tray_from_snapshot(&app, &snapshot);
     }
 
@@ -156,6 +162,9 @@ async fn run_cli_preset(
     state: State<'_, EngineState>,
     preset: String,
 ) -> Result<CliExecutionRecord, String> {
+    // Serialize with syncs: an automatic sync and "Evaluate Alert" (`--notify`) running
+    // concurrently can both pass the CLI's notified check and send duplicate alerts.
+    let _engine_guard = state.sync_lock.lock().await;
     let settings = state.settings.lock().await.clone();
     let engine = resolve_engine_info(settings.custom_cli_path.as_deref());
     if !engine.available {
@@ -178,7 +187,7 @@ async fn run_cli_preset(
     let record = execute_cli(&state, &engine.binary_path, args, "console").await?;
 
     if preset != "help" {
-        if let Ok(snapshot) = sync_dashboard(&state, false, "console").await {
+        if let Ok(snapshot) = sync_dashboard_locked(&state, false, "console").await {
             update_tray_from_snapshot(&app, &snapshot);
         }
     }
