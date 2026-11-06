@@ -280,20 +280,59 @@ pub fn extract_join_details(hangout_link: &str, location: &str) -> (Option<Strin
         return (None, None);
     };
 
-    let lower = url.to_ascii_lowercase();
-    let provider = if lower.contains("meet.google.com") || lower.contains("hangouts.google.com") {
-        "google_meet"
-    } else if lower.contains("zoom.us") || lower.contains("zoom.com") {
-        "zoom"
-    } else if lower.contains("teams.microsoft.com") || lower.contains("teams.live.com") {
-        "teams"
-    } else if lower.contains("webex.com") {
-        "webex"
-    } else {
-        "link"
-    };
-
+    let provider = detect_meeting_provider(&url);
     (Some(url), Some(provider.to_string()))
+}
+
+/// Returns the lowercase hostname of an `http(s)://` URL, ignoring userinfo, port, path,
+/// query, and fragment. Returns `None` for anything that is not an absolute http(s) URL.
+fn url_hostname(url: &str) -> Option<String> {
+    let (scheme, rest) = url.split_once("://")?;
+    if !scheme.eq_ignore_ascii_case("https") && !scheme.eq_ignore_ascii_case("http") {
+        return None;
+    }
+    let authority = rest.split(['/', '?', '#']).next()?;
+    let host_port = authority.rsplit('@').next()?;
+    let host = if let Some(ipv6) = host_port.strip_prefix('[') {
+        ipv6.split(']').next()?
+    } else {
+        host_port.split(':').next()?
+    };
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    if host.is_empty() {
+        None
+    } else {
+        Some(host)
+    }
+}
+
+/// True when `host` is exactly `domain` or a subdomain of it (label boundary respected).
+fn host_matches(host: &str, domain: &str) -> bool {
+    host == domain
+        || host
+            .strip_suffix(domain)
+            .is_some_and(|prefix| prefix.ends_with('.'))
+}
+
+/// Classifies a join URL by its hostname only. Substring matching on the whole URL would
+/// label `https://zoom.us.evil.example/...` or `https://evil.example/?next=meet.google.com`
+/// as a trusted provider even though "Join" opens an unrelated host.
+pub fn detect_meeting_provider(url: &str) -> &'static str {
+    const PROVIDERS: &[(&str, &[&str])] = &[
+        ("google_meet", &["meet.google.com", "hangouts.google.com"]),
+        ("zoom", &["zoom.us", "zoom.com"]),
+        ("teams", &["teams.microsoft.com", "teams.live.com"]),
+        ("webex", &["webex.com"]),
+    ];
+
+    let Some(host) = url_hostname(url) else {
+        return "link";
+    };
+    PROVIDERS
+        .iter()
+        .find(|(_, domains)| domains.iter().any(|domain| host_matches(&host, domain)))
+        .map(|(provider, _)| *provider)
+        .unwrap_or("link")
 }
 
 pub fn filter_accepted_meetings(events: &[ParsedMeeting]) -> Vec<ParsedMeeting> {
@@ -1139,6 +1178,34 @@ mod tests {
             extract_join_details("", "Join via Zoom: https://company.zoom.us/j/123456789.");
         assert_eq!(z_url.as_deref(), Some("https://company.zoom.us/j/123456789"));
         assert_eq!(z_prov.as_deref(), Some("zoom"));
+    }
+
+    #[test]
+    fn provider_detection_respects_hostname_boundaries() {
+        // Untrusted hosts that merely contain a provider name must not get a provider label.
+        assert_eq!(detect_meeting_provider("https://zoom.us.evil.example/j/123"), "link");
+        assert_eq!(
+            detect_meeting_provider("https://evil.example/?next=meet.google.com"),
+            "link"
+        );
+        assert_eq!(detect_meeting_provider("https://notzoom.us/j/1"), "link");
+        assert_eq!(detect_meeting_provider("https://evil.example/#meet.google.com"), "link");
+        assert_eq!(detect_meeting_provider("https://meet.google.com@evil.example/x"), "link");
+        assert_eq!(detect_meeting_provider("not a url"), "link");
+
+        // Exact hosts and legitimate subdomains, regardless of case, port, or userinfo.
+        assert_eq!(detect_meeting_provider("https://zoom.us/j/1"), "zoom");
+        assert_eq!(detect_meeting_provider("https://company.zoom.us/j/123"), "zoom");
+        assert_eq!(detect_meeting_provider("https://user:pw@zoom.us:443/j/1"), "zoom");
+        assert_eq!(
+            detect_meeting_provider("HTTPS://MEET.GOOGLE.COM/abc-defg-hij"),
+            "google_meet"
+        );
+        assert_eq!(
+            detect_meeting_provider("https://teams.microsoft.com/l/meetup-join/x"),
+            "teams"
+        );
+        assert_eq!(detect_meeting_provider("https://example.webex.com/meet/x"), "webex");
     }
 
     fn make_record(stdout: &str, stderr: &str, success: bool) -> CliExecutionRecord {
