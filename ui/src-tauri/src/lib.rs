@@ -243,6 +243,12 @@ pub fn run() {
         .setup(|app| {
             setup_tray(app.handle())?;
 
+            if let Some(win) = app.get_webview_window("main") {
+                let _ = win.show();
+                let _ = win.unminimize();
+                let _ = win.set_focus();
+            }
+
             // Apply initial window pin setting if enabled
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
