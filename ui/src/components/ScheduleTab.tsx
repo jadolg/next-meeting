@@ -64,6 +64,27 @@ export function ScheduleTab({ events, nowMs, onOpenUrl }: ScheduleTabProps) {
     });
   }, [events, filter, query, nowMs]);
 
+  // Latest end time among every (unfiltered) event that starts before a given event. Free
+  // time before a meeting has to be measured from the end of *all* earlier meetings, not
+  // just the previous visible card: an overlapping long meeting (09:00–12:00 alongside
+  // 10:00–10:30 and 11:00–11:30) or a meeting hidden by the search/status filters would
+  // otherwise produce a false "open break".
+  const latestEndBefore = useMemo(() => {
+    const ordered = [...events].sort(
+      (a, b) => a.startEpochMs - b.startEpochMs || a.endEpochMs - b.endEpochMs
+    );
+    const result = new Map<EnrichedMeeting, number | null>();
+    let runningMaxEnd: number | null = null;
+    for (const ev of ordered) {
+      result.set(ev, runningMaxEnd);
+      runningMaxEnd =
+        runningMaxEnd === null
+          ? ev.endEpochMs
+          : Math.max(runningMaxEnd, ev.endEpochMs);
+    }
+    return result;
+  }, [events]);
+
   const handleCopy = async (id: string, url: string) => {
     await navigator.clipboard.writeText(url);
     setCopiedId(id);
@@ -129,10 +150,13 @@ export function ScheduleTab({ events, nowMs, onOpenUrl }: ScheduleTabProps) {
       ) : (
         <div className="timeline-list">
           {filteredEvents.map((meeting, idx) => {
-            const prev = idx > 0 ? filteredEvents[idx - 1] : null;
+            // Only announce a break between two visible cards, but measure it against
+            // every earlier meeting, visible or not.
+            const priorEnd =
+              idx > 0 ? (latestEndBefore.get(meeting) ?? null) : null;
             const gapMinutes =
-              prev && meeting.startEpochMs > prev.endEpochMs
-                ? Math.floor((meeting.startEpochMs - prev.endEpochMs) / 60_000)
+              priorEnd !== null && meeting.startEpochMs > priorEnd
+                ? Math.floor((meeting.startEpochMs - priorEnd) / 60_000)
                 : 0;
 
             const rsvp = responseStatusLabel(meeting.selfResponseStatus);
