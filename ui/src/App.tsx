@@ -185,6 +185,11 @@ export function App() {
 
   // Subscribe to backend events (login progress & system tray refreshes)
   useEffect(() => {
+    // `listen()` registers asynchronously, so cleanup can run before an unlisten function
+    // has been assigned (StrictMode's setup/cleanup replay does exactly this). Track
+    // disposal and unsubscribe immediately when a registration resolves late, otherwise
+    // the stale subscription survives and handlers run twice.
+    let disposed = false;
     let unlistenLogin: (() => void) | null = null;
     let unlistenSnap: (() => void) | null = null;
 
@@ -219,7 +224,11 @@ export function App() {
         }
       })
       .then((fn) => {
-        unlistenLogin = fn;
+        if (disposed) {
+          fn();
+        } else {
+          unlistenLogin = fn;
+        }
       })
       .catch(() => {});
 
@@ -229,11 +238,16 @@ export function App() {
         void refreshHistory();
       })
       .then((fn) => {
-        unlistenSnap = fn;
+        if (disposed) {
+          fn();
+        } else {
+          unlistenSnap = fn;
+        }
       })
       .catch(() => {});
 
     return () => {
+      disposed = true;
       unlistenLogin?.();
       unlistenSnap?.();
     };
