@@ -125,18 +125,13 @@ fn build_go_sidecar() {
         ])
         .status();
 
+    // A rebuild was required (sources are newer than the binary or it is missing), so any
+    // failure here must abort the build: silently keeping an older sidecar would package an
+    // outdated engine.
     match status {
         Ok(s) if s.success() => {}
-        Ok(s) => {
-            if !output_bin.exists() {
-                panic!("Failed to build Go sidecar binary for {target} (exit status: {s})");
-            }
-        }
-        Err(err) => {
-            if !output_bin.exists() {
-                panic!("Failed to invoke `go build` for sidecar ({target}): {err}");
-            }
-        }
+        Ok(s) => panic!("Failed to build Go sidecar binary for {target} (exit status: {s})"),
+        Err(err) => panic!("Failed to invoke `go build` for sidecar ({target}): {err}"),
     }
 }
 
