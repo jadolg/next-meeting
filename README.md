@@ -20,6 +20,16 @@ A CLI tool and cross-platform interactive desktop application (built with **Taur
 - **Built-in OAuth & Credentials Manager**: Drag-and-drop or paste `credentials.json` with instant schema validation, plus real-time `next-meeting --login` browser flow with cancellation support.
 - **Interactive CLI Console**: Run CLI presets directly (`--only-accepted`, `--notify`, `--clear-cache`, `-h`) and inspect raw `stdout`/`stderr`, exit codes, cache TTL, and execution latency.
 
+## Desktop UI Preview
+
+| Live Focus Dashboard | Interactive Today's Timeline |
+| :---: | :---: |
+| ![Overview Dashboard](docs/screenshots/overview-dark.png) | ![Schedule Timeline](docs/screenshots/schedule-timeline.png) |
+| **CLI Engine Console & Execution Telemetry** | **Auth, Tray & Light Theme Settings** |
+| ![CLI Engine Console](docs/screenshots/cli-engine-console.png) | ![Auth and Settings Light Theme](docs/screenshots/settings-light.png) |
+| **Guided OAuth Onboarding** | **Always-on-Top Compact Widget** |
+| ![OAuth Onboarding](docs/screenshots/oauth-onboarding.png) | ![Compact Desk Widget](docs/screenshots/compact-widget.png) |
+
 ## Prerequisites
 
 - **Go**: Required to build the CLI (and automatically invoked by Cargo's `build.rs` when compiling the bundled sidecar).
@@ -34,7 +44,7 @@ A CLI tool and cross-platform interactive desktop application (built with **Taur
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/stescobedo92/next-meeting.git
+git clone https://github.com/jadolg/next-meeting.git
 cd next-meeting
 ```
 
