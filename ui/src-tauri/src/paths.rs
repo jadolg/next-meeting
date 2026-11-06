@@ -206,7 +206,7 @@ fn write_private_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
     #[cfg(unix)]
     {
         use std::io::Write;
-        use std::os::unix::fs::OpenOptionsExt;
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
         let mut file = fs::OpenOptions::new()
             .create(true)
             .write(true)
@@ -214,6 +214,10 @@ fn write_private_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
             .mode(0o600)
             .open(path)
             .map_err(|e| format!("Failed to open {} for writing: {e}", path.display()))?;
+        // `mode(0o600)` only applies when the file is created. Tighten a pre-existing file
+        // (e.g. a credentials.json placed manually with 0644) before the secret is written.
+        file.set_permissions(fs::Permissions::from_mode(0o600))
+            .map_err(|e| format!("Failed to restrict permissions on {}: {e}", path.display()))?;
         file.write_all(bytes)
             .map_err(|e| format!("Failed to write {}: {e}", path.display()))?;
         Ok(())
@@ -280,5 +284,24 @@ mod tests {
     fn rejects_empty_fields() {
         let empty = r#"{"installed": {"client_id": "  ", "client_secret": ""}}"#;
         assert!(validate_credentials_content(empty).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_private_file_tightens_existing_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = env::temp_dir().join(format!(
+            "next-meeting-private-file-{}.json",
+            std::process::id()
+        ));
+        fs::write(&path, b"old").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+
+        write_private_file(&path, b"{}").unwrap();
+        let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        let _ = fs::remove_file(&path);
+
+        assert_eq!(mode, 0o600);
     }
 }
