@@ -37,7 +37,10 @@ export function ScheduleTab({ events, nowMs, onOpenUrl }: ScheduleTabProps) {
   const filteredEvents = useMemo(() => {
     const q = query.trim().toLowerCase();
     return events.filter((ev) => {
-      if (filter === "upcoming" && ev.phase === "past") return false;
+      // Judge "still active" by the live clock, not the snapshot-time `phase`, so a
+      // meeting that ended between syncs leaves this list the moment its card says
+      // "Ended" (the cards below use `nowMs` too).
+      if (filter === "upcoming" && nowMs >= ev.endEpochMs) return false;
       if (
         filter === "accepted" &&
         ev.selfResponseStatus !== "accepted" &&
@@ -59,7 +62,7 @@ export function ScheduleTab({ events, nowMs, onOpenUrl }: ScheduleTabProps) {
       }
       return true;
     });
-  }, [events, filter, query]);
+  }, [events, filter, query, nowMs]);
 
   const handleCopy = async (id: string, url: string) => {
     await navigator.clipboard.writeText(url);
@@ -95,7 +98,7 @@ export function ScheduleTab({ events, nowMs, onOpenUrl }: ScheduleTabProps) {
               ["all", `All (${events.length})`],
               [
                 "upcoming",
-                `Active & Upcoming (${events.filter((e) => e.phase !== "past").length})`,
+                `Active & Upcoming (${events.filter((e) => nowMs < e.endEpochMs).length})`,
               ],
               ["accepted", "Accepted"],
               ["unconfirmed", "Pending / Declined"],
