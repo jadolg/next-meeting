@@ -77,12 +77,14 @@ struct InstalledCredsBody {
 }
 
 fn mask_client_id(client_id: &str) -> String {
-    let trimmed = client_id.trim();
-    if trimmed.len() <= 16 {
-        return trimmed.to_string();
+    // Work on chars, not bytes: slicing a multibyte client ID at a byte offset panics, and
+    // the release profile uses `panic = "abort"`.
+    let chars: Vec<char> = client_id.trim().chars().collect();
+    if chars.len() <= 16 {
+        return chars.into_iter().collect();
     }
-    let prefix = &trimmed[..10];
-    let suffix = &trimmed[trimmed.len().saturating_sub(14)..];
+    let prefix: String = chars[..10].iter().collect();
+    let suffix: String = chars[chars.len() - 14..].iter().collect();
     format!("{prefix}...{suffix}")
 }
 
@@ -284,6 +286,24 @@ mod tests {
     fn rejects_empty_fields() {
         let empty = r#"{"installed": {"client_id": "  ", "client_secret": ""}}"#;
         assert!(validate_credentials_content(empty).is_err());
+    }
+
+    #[test]
+    fn masks_multibyte_client_id_without_panicking() {
+        // 8 chars but 24 bytes: byte-based slicing at offset 10 would split a character.
+        let eight = "界".repeat(8);
+        assert_eq!(mask_client_id(&eight), eight);
+
+        let long = "界".repeat(30);
+        let preview = mask_client_id(&long);
+        assert!(preview.starts_with(&"界".repeat(10)));
+        assert!(preview.contains("..."));
+        assert!(preview.ends_with(&"界".repeat(14)));
+
+        let envelope = format!(
+            r#"{{"installed": {{"client_id": "{long}", "client_secret": "s"}}}}"#
+        );
+        assert!(validate_credentials_content(&envelope).is_ok());
     }
 
     #[cfg(unix)]
