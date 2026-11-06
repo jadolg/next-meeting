@@ -185,6 +185,9 @@ pub struct DashboardSnapshot {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LoginProgressPayload {
+    /// Id of the `--login` attempt this event belongs to; the frontend ignores events from
+    /// attempts older than the newest one it knows about.
+    pub session_id: u64,
     pub stage: String,
     pub url: Option<String>,
     pub message: String,

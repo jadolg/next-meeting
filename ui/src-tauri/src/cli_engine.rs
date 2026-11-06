@@ -36,9 +36,18 @@ pub struct EngineState {
     /// cache write.
     pub sync_lock: Mutex<()>,
     pub history: Mutex<VecDeque<CliExecutionRecord>>,
-    pub active_login: Mutex<Option<Child>>,
+    pub active_login: Mutex<Option<ActiveLogin>>,
     pub last_snapshot: Mutex<Option<DashboardSnapshot>>,
     next_exec_id: AtomicU64,
+    /// Monotonic id handed to each `--login` attempt (see [`start_oauth_login`]).
+    next_login_session: AtomicU64,
+}
+
+/// A running `next-meeting --login` child bound to the session that spawned it, so a
+/// watcher from an earlier (cancelled or replaced) attempt never touches a newer child.
+pub struct ActiveLogin {
+    pub session_id: u64,
+    pub child: Child,
 }
 
 impl Default for EngineState {
@@ -56,6 +65,7 @@ impl EngineState {
             active_login: Mutex::new(None),
             last_snapshot: Mutex::new(None),
             next_exec_id: AtomicU64::new(1),
+            next_login_session: AtomicU64::new(1),
         }
     }
 
@@ -808,7 +818,46 @@ pub async fn sync_dashboard_locked(
     Ok(snapshot)
 }
 
-pub async fn start_oauth_login(app: AppHandle, state: &EngineState) -> Result<(), String> {
+/// Maximum time a `--login` attempt may wait for the browser round-trip.
+const LOGIN_TIMEOUT: Duration = Duration::from_secs(180);
+
+fn emit_login_progress(
+    app: &AppHandle,
+    session_id: u64,
+    stage: &str,
+    url: Option<String>,
+    message: impl Into<String>,
+    success: Option<bool>,
+) {
+    let _ = app.emit(
+        "cli://login-progress",
+        LoginProgressPayload {
+            session_id,
+            stage: stage.to_string(),
+            url,
+            message: message.into(),
+            success,
+        },
+    );
+}
+
+/// Result of one poll of the `active_login` slot by the watcher bound to a session.
+enum LoginPoll {
+    Running,
+    Exited(std::io::Result<std::process::ExitStatus>),
+    /// The slot was cleared by `cancel_oauth_login` and no newer attempt replaced it.
+    Cancelled,
+    /// A newer sign-in attempt owns the slot; it reports its own progress.
+    Superseded,
+}
+
+/// Starts `next-meeting --login` and returns the id of the new login session.
+///
+/// The child, its output readers, and the watcher task are all bound to that id: the
+/// watcher only ever polls, clears, or kills the child of its own session, and every
+/// progress event carries the id so the frontend can discard events from an attempt that
+/// was cancelled or replaced before the watcher's next 200 ms poll.
+pub async fn start_oauth_login(app: AppHandle, state: &EngineState) -> Result<u64, String> {
     let creds = inspect_credentials();
     if !creds.exists || !creds.valid {
         return Err(creds.error.unwrap_or_else(|| {
@@ -819,14 +868,17 @@ pub async fn start_oauth_login(app: AppHandle, state: &EngineState) -> Result<()
         }));
     }
 
-    // Cancel any stale login process before starting a new one
-    cancel_oauth_login(state).await;
-
     let settings = state.settings.lock().await.clone();
     let engine = resolve_engine_info(settings.custom_cli_path.as_deref());
     if !engine.available {
         return Err("CLI engine binary is not available.".to_string());
     }
+
+    // Allocate the session *before* cancelling the previous attempt: its watcher sees the
+    // counter advance and exits silently instead of reporting a user cancellation that
+    // would close the modal of the attempt replacing it.
+    let session_id = state.next_login_session.fetch_add(1, Ordering::SeqCst);
+    cancel_oauth_login(state).await;
 
     let args = vec!["--login".to_string()];
     let mut cmd = configure_command(&engine.binary_path, &args);
@@ -839,18 +891,16 @@ pub async fn start_oauth_login(app: AppHandle, state: &EngineState) -> Result<()
 
     {
         let mut active = state.active_login.lock().await;
-        *active = Some(child);
+        *active = Some(ActiveLogin { session_id, child });
     }
 
-    let _ = app.emit(
-        "cli://login-progress",
-        LoginProgressPayload {
-            stage: "starting".to_string(),
-            url: None,
-            message: "Starting local OAuth callback listener on http://localhost:8085/callback..."
-                .to_string(),
-            success: None,
-        },
+    emit_login_progress(
+        &app,
+        session_id,
+        "starting",
+        None,
+        "Starting local OAuth callback listener on http://localhost:8085/callback...",
+        None,
     );
 
     let app_stdout = app.clone();
@@ -866,26 +916,16 @@ pub async fn start_oauth_login(app: AppHandle, state: &EngineState) -> Result<()
                     || trimmed.starts_with("http://")
                     || trimmed.starts_with("https://")
                 {
-                    let _ = app_stdout.emit(
-                        "cli://login-progress",
-                        LoginProgressPayload {
-                            stage: "waiting_browser".to_string(),
-                            url: Some(trimmed.to_string()),
-                            message: "Browser authorization opened. Approve access in your browser to continue."
-                                .to_string(),
-                            success: None,
-                        },
+                    emit_login_progress(
+                        &app_stdout,
+                        session_id,
+                        "waiting_browser",
+                        Some(trimmed.to_string()),
+                        "Browser authorization opened. Approve access in your browser to continue.",
+                        None,
                     );
                 } else {
-                    let _ = app_stdout.emit(
-                        "cli://login-progress",
-                        LoginProgressPayload {
-                            stage: "log".to_string(),
-                            url: None,
-                            message: trimmed.to_string(),
-                            success: None,
-                        },
-                    );
+                    emit_login_progress(&app_stdout, session_id, "log", None, trimmed, None);
                 }
             }
         });
@@ -909,60 +949,60 @@ pub async fn start_oauth_login(app: AppHandle, state: &EngineState) -> Result<()
                     }
                     buf.push_str(trimmed);
                 }
-                let _ = app_stderr.emit(
-                    "cli://login-progress",
-                    LoginProgressPayload {
-                        stage: "stderr".to_string(),
-                        url: None,
-                        message: trimmed.to_string(),
-                        success: None,
-                    },
-                );
+                emit_login_progress(&app_stderr, session_id, "stderr", None, trimmed, None);
             }
         });
     }
 
     let app_wait = app.clone();
     tokio::spawn(async move {
+        use tauri::Manager;
+
         let started = Instant::now();
-        // Poll wait cleanly without holding lock across await so `cancel_oauth_login` can kill immediately
-        let status_opt = loop {
-            let mut guard = {
-                use tauri::Manager;
+        // Poll without holding the lock across awaits so `cancel_oauth_login` can kill
+        // the child immediately.
+        let outcome = loop {
+            let polled = {
                 let st = app_wait.state::<EngineState>();
                 let mut active = st.active_login.lock().await;
-                let Some(child_ref) = active.as_mut() else {
-                    break None;
-                };
-                match child_ref.try_wait() {
-                    Ok(Some(status)) => {
-                        *active = None;
-                        Some(Ok(status))
+                let owns_slot = active.as_ref().map(|login| login.session_id == session_id);
+                match owns_slot {
+                    Some(true) => match active.as_mut() {
+                        Some(login) => match login.child.try_wait() {
+                            Ok(Some(status)) => {
+                                *active = None;
+                                LoginPoll::Exited(Ok(status))
+                            }
+                            Ok(None) => LoginPoll::Running,
+                            Err(e) => {
+                                *active = None;
+                                LoginPoll::Exited(Err(e))
+                            }
+                        },
+                        None => LoginPoll::Cancelled,
+                    },
+                    Some(false) => LoginPoll::Superseded,
+                    None if st.next_login_session.load(Ordering::SeqCst) > session_id + 1 => {
+                        LoginPoll::Superseded
                     }
-                    Ok(None) => None,
-                    Err(e) => {
-                        *active = None;
-                        Some(Err(e))
-                    }
+                    None => LoginPoll::Cancelled,
                 }
             };
 
-            if let Some(done) = guard.take() {
-                break Some(done);
+            if !matches!(polled, LoginPoll::Running) {
+                break polled;
             }
 
-            if started.elapsed() > Duration::from_secs(180) {
-                use tauri::Manager;
+            if started.elapsed() > LOGIN_TIMEOUT {
                 let st = app_wait.state::<EngineState>();
-                cancel_oauth_login(&st).await;
-                let _ = app_wait.emit(
-                    "cli://login-progress",
-                    LoginProgressPayload {
-                        stage: "finished".to_string(),
-                        url: None,
-                        message: "Authorization timed out after 3 minutes.".to_string(),
-                        success: Some(false),
-                    },
+                cancel_login_session(&st, session_id).await;
+                emit_login_progress(
+                    &app_wait,
+                    session_id,
+                    "finished",
+                    None,
+                    "Authorization timed out after 3 minutes.",
+                    Some(false),
                 );
                 return;
             }
@@ -970,25 +1010,26 @@ pub async fn start_oauth_login(app: AppHandle, state: &EngineState) -> Result<()
             tokio::time::sleep(Duration::from_millis(200)).await;
         };
 
-        let Some(wait_res) = status_opt else {
-            // Cancelled by user
-            let _ = app_wait.emit(
-                "cli://login-progress",
-                LoginProgressPayload {
-                    stage: "cancelled".to_string(),
-                    url: None,
-                    message: "Sign-in cancelled.".to_string(),
-                    success: Some(false),
-                },
-            );
-            return;
+        let wait_res = match outcome {
+            LoginPoll::Exited(res) => res,
+            LoginPoll::Superseded => return,
+            LoginPoll::Cancelled | LoginPoll::Running => {
+                emit_login_progress(
+                    &app_wait,
+                    session_id,
+                    "cancelled",
+                    None,
+                    "Sign-in cancelled.",
+                    Some(false),
+                );
+                return;
+            }
         };
 
         let stderr_collected = stderr_buf.lock().await.clone();
         match wait_res {
             Ok(status) if status.success() => {
                 {
-                    use tauri::Manager;
                     let st = app_wait.state::<EngineState>();
                     let _ = st
                         .record_execution(CliExecutionRecord {
@@ -1005,14 +1046,13 @@ pub async fn start_oauth_login(app: AppHandle, state: &EngineState) -> Result<()
                         })
                         .await;
                 }
-                let _ = app_wait.emit(
-                    "cli://login-progress",
-                    LoginProgressPayload {
-                        stage: "finished".to_string(),
-                        url: None,
-                        message: "Logged in to Google Calendar successfully!".to_string(),
-                        success: Some(true),
-                    },
+                emit_login_progress(
+                    &app_wait,
+                    session_id,
+                    "finished",
+                    None,
+                    "Logged in to Google Calendar successfully!",
+                    Some(true),
                 );
             }
             Ok(status) => {
@@ -1025,7 +1065,6 @@ pub async fn start_oauth_login(app: AppHandle, state: &EngineState) -> Result<()
                     stderr_collected.clone()
                 };
                 {
-                    use tauri::Manager;
                     let st = app_wait.state::<EngineState>();
                     let _ = st
                         .record_execution(CliExecutionRecord {
@@ -1042,37 +1081,43 @@ pub async fn start_oauth_login(app: AppHandle, state: &EngineState) -> Result<()
                         })
                         .await;
                 }
-                let _ = app_wait.emit(
-                    "cli://login-progress",
-                    LoginProgressPayload {
-                        stage: "finished".to_string(),
-                        url: None,
-                        message: err_msg,
-                        success: Some(false),
-                    },
-                );
+                emit_login_progress(&app_wait, session_id, "finished", None, err_msg, Some(false));
             }
             Err(err) => {
-                let _ = app_wait.emit(
-                    "cli://login-progress",
-                    LoginProgressPayload {
-                        stage: "finished".to_string(),
-                        url: None,
-                        message: format!("Error waiting for login process: {err}"),
-                        success: Some(false),
-                    },
+                emit_login_progress(
+                    &app_wait,
+                    session_id,
+                    "finished",
+                    None,
+                    format!("Error waiting for login process: {err}"),
+                    Some(false),
                 );
             }
         }
     });
 
-    Ok(())
+    Ok(session_id)
 }
 
+/// Kills whichever login attempt is active (user cancel, logout, quit).
 pub async fn cancel_oauth_login(state: &EngineState) {
     let mut active = state.active_login.lock().await;
-    if let Some(mut child) = active.take() {
-        let _ = child.kill().await;
+    if let Some(mut login) = active.take() {
+        let _ = login.child.kill().await;
+    }
+}
+
+/// Kills the active login only if it still belongs to `session_id`, so a watcher whose
+/// attempt was already replaced never kills its successor.
+async fn cancel_login_session(state: &EngineState, session_id: u64) {
+    let mut active = state.active_login.lock().await;
+    if active
+        .as_ref()
+        .is_some_and(|login| login.session_id == session_id)
+    {
+        if let Some(mut login) = active.take() {
+            let _ = login.child.kill().await;
+        }
     }
 }
 

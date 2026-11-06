@@ -41,8 +41,9 @@ export const api = {
     return invoke<CredentialsInfo>("remove_credentials_json");
   },
 
-  startLogin(): Promise<void> {
-    return invoke<void>("start_login");
+  /** Starts `next-meeting --login` and resolves with the id of the new login session. */
+  startLogin(): Promise<number> {
+    return invoke<number>("start_login");
   },
 
   cancelLogin(): Promise<void> {

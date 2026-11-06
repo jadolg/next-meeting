@@ -105,6 +105,8 @@ export interface DashboardSnapshot {
 }
 
 export interface LoginProgressPayload {
+  /** Id of the `--login` attempt this event belongs to (monotonic per app run). */
+  sessionId: number;
   stage: "starting" | "waiting_browser" | "log" | "stderr" | "finished" | "cancelled";
   url: string | null;
   message: string;

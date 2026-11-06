@@ -47,6 +47,9 @@ export function App() {
   const [loginError, setLoginError] = useState<string | null>(null);
 
   const boundaryTriggeredRef = useRef<string>("");
+  // Id of the newest `--login` attempt; progress events from older attempts are ignored.
+  const loginSessionRef = useRef(0);
+  const loginStartPendingRef = useRef(false);
 
   const refreshHistory = useCallback(async () => {
     try {
@@ -187,6 +190,13 @@ export function App() {
 
     void api
       .onLoginProgress((payload) => {
+        // Drop events from a sign-in attempt that was cancelled or replaced.
+        if (payload.sessionId < loginSessionRef.current) return;
+        loginSessionRef.current = payload.sessionId;
+        // While a new attempt is starting, a late "cancelled" can only belong to the
+        // previous one (the frontend closes the modal itself on user cancel).
+        if (payload.stage === "cancelled" && loginStartPendingRef.current) return;
+
         if (payload.url) {
           setLoginUrl(payload.url);
         }
@@ -256,10 +266,14 @@ export function App() {
       "Launching `next-meeting --login` and opening Google authorization..."
     );
     setLoginOpen(true);
+    loginStartPendingRef.current = true;
     try {
-      await api.startLogin();
+      const sessionId = await api.startLogin();
+      loginSessionRef.current = Math.max(loginSessionRef.current, sessionId);
     } catch (err) {
       setLoginError(String(err));
+    } finally {
+      loginStartPendingRef.current = false;
     }
   }, []);
 

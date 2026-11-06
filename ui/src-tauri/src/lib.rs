@@ -80,8 +80,9 @@ async fn remove_credentials_json() -> Result<CredentialsInfo, String> {
     delete_credentials_file()
 }
 
+/// Starts a sign-in attempt and returns its session id (echoed on every progress event).
 #[tauri::command]
-async fn start_login(app: AppHandle, state: State<'_, EngineState>) -> Result<(), String> {
+async fn start_login(app: AppHandle, state: State<'_, EngineState>) -> Result<u64, String> {
     start_oauth_login(app, &state).await
 }
 
