@@ -143,7 +143,7 @@ Optional flags:
 ## CI/CD & Automated Releases
 
 - **CI (`.github/workflows/build.yml`)**: Validates both the Go CLI (`go build`, `go test`) and the Tauri + Rust Desktop UI (`tsc`, `vite build`, `cargo clippy`, `cargo test` including sidecar integration tests).
-- **Release (`.github/workflows/release.yml`)**: Creating a GitHub Release automatically runs **GoReleaser** for standalone CLI archives alongside a cross-platform **Tauri Release Matrix** (`linux-x86_64`, `windows-x86_64`, `macos-aarch64`, `macos-x86_64`) that builds and attaches native desktop UI installers to the same release.
+- **Release (`.github/workflows/release.yml`)**: Automated **SemVer** release pipeline triggered on `main` pushes (analyzing Conventional Commits for `major`, `minor`, or `patch` bumps), manual `workflow_dispatch` (with `auto`, `patch`, `minor`, `major`, or `custom` SemVer selection), or manual GitHub Releases. Automatically tags the release, runs **GoReleaser** for standalone CLI archives, and executes a cross-platform **Tauri Release Matrix** (`linux-x86_64`, `windows-x86_64`, `macos-aarch64`, `macos-x86_64`) that attaches native desktop UI installers to the same GitHub Release.
 
 ## Troubleshooting
 
