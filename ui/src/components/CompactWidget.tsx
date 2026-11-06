@@ -1,4 +1,5 @@
 import {
+  AlertTriangle,
   Clock,
   ExternalLink,
   Maximize2,
@@ -6,6 +7,7 @@ import {
   RefreshCw,
   Sparkles,
   Video,
+  X,
 } from "lucide-react";
 import type { AppSettings, DashboardSnapshot } from "../types";
 import {
@@ -19,6 +21,9 @@ interface CompactWidgetProps {
   settings: AppSettings;
   nowMs: number;
   syncing: boolean;
+  /** Last sync/action failure to surface on top of the (possibly stale) schedule. */
+  errorMessage: string | null;
+  onDismissError: () => void;
   onSync: (force: boolean) => void;
   onTogglePin: () => void;
   onExitCompact: () => void;
@@ -30,6 +35,8 @@ export function CompactWidget({
   settings,
   nowMs,
   syncing,
+  errorMessage,
+  onDismissError,
   onSync,
   onTogglePin,
   onExitCompact,
@@ -91,6 +98,25 @@ export function CompactWidget({
           </button>
         </div>
       </header>
+
+      {errorMessage && (
+        <div
+          className="inline-banner banner-danger compact-error"
+          role="alert"
+          title={errorMessage}
+        >
+          <AlertTriangle size={13} />
+          <span>{errorMessage}</span>
+          <button
+            type="button"
+            className="icon-btn icon-btn-xs"
+            onClick={onDismissError}
+            aria-label="Dismiss error"
+          >
+            <X size={12} />
+          </button>
+        </div>
+      )}
 
       <main className="compact-body">
         {focusMeeting ? (

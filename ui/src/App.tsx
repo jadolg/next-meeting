@@ -1,4 +1,5 @@
 import {
+  AlertTriangle,
   CalendarClock,
   CalendarRange,
   Check,
@@ -10,6 +11,7 @@ import {
   RotateCw,
   Settings,
   Terminal,
+  X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
@@ -36,7 +38,15 @@ export function App() {
   const [runningPreset, setRunningPreset] = useState<string | null>(null);
   const [copiedCli, setCopiedCli] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  // Startup failure shown on the boot screen (no snapshot yet).
   const [bootError, setBootError] = useState<string | null>(null);
+  // Failure of a later sync/action/settings save, shown as a dismissible banner on top of
+  // the (possibly stale) schedule and cleared on the next successful operation.
+  const [runtimeError, setRuntimeError] = useState<string | null>(null);
+  const snapshotRef = useRef<DashboardSnapshot | null>(null);
+  useEffect(() => {
+    snapshotRef.current = snapshot;
+  }, [snapshot]);
 
   // Login modal state
   const [loginOpen, setLoginOpen] = useState(false);
@@ -66,9 +76,15 @@ export function App() {
       try {
         const snap = await api.getDashboardSnapshot(force, trigger);
         setSnapshot(snap);
+        setRuntimeError(null);
         await refreshHistory();
       } catch (err) {
-        setBootError(String(err));
+        const message = String(err);
+        if (snapshotRef.current) {
+          setRuntimeError(message);
+        } else {
+          setBootError(message);
+        }
       } finally {
         setSyncing(false);
       }
@@ -261,22 +277,29 @@ export function App() {
 
   const handleUpdateSettings = useCallback(
     async (next: AppSettings, resync = false) => {
-      const prevCompact = settings?.compactMode ?? false;
+      const previous = settings;
+      const prevCompact = previous?.compactMode ?? false;
       setSettings(next);
       try {
         const saved = await api.updateSettings(next);
         setSettings(saved);
+        setRuntimeError(null);
         if (saved.compactMode !== prevCompact) {
           await api.setWindowCompact(saved.compactMode);
         }
-        if (resync) {
-          await performSync(false, "settings");
-        }
       } catch (err) {
-        setBootError(String(err));
+        // Roll back the optimistic update so the UI never shows settings that were not
+        // actually saved, and surface the failure.
+        setSettings(previous);
+        setRuntimeError(String(err));
+        return;
+      }
+      if (resync) {
+        // performSync reports its own failures.
+        await performSync(false, "settings");
       }
     },
-    [settings?.compactMode, performSync]
+    [settings, performSync]
   );
 
   const handleStartLogin = useCallback(async () => {
@@ -385,6 +408,8 @@ export function App() {
         settings={settings}
         nowMs={nowMs}
         syncing={syncing}
+        errorMessage={runtimeError}
+        onDismissError={() => setRuntimeError(null)}
         onSync={(force) => void performSync(force, "compact")}
         onTogglePin={() =>
           void handleUpdateSettings(
@@ -495,6 +520,21 @@ export function App() {
         </div>
       </header>
 
+      {runtimeError && (
+        <div className="inline-banner banner-danger runtime-banner" role="alert">
+          <AlertTriangle size={16} />
+          <span>{runtimeError}</span>
+          <button
+            type="button"
+            className="icon-btn icon-btn-xs"
+            onClick={() => setRuntimeError(null)}
+            aria-label="Dismiss error"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       {/* Navigation Tabs */}
       <nav className="nav-tabs" aria-label="Main navigation">
         {(
@@ -580,7 +620,10 @@ export function App() {
                 await api.runCliPreset(preset);
                 const updated = await api.getDashboardSnapshot(false, "console");
                 setSnapshot(updated);
+                setRuntimeError(null);
                 await refreshHistory();
+              } catch (err) {
+                setRuntimeError(String(err));
               } finally {
                 setRunningPreset(null);
               }
@@ -605,14 +648,24 @@ export function App() {
               await performSync(false, "credentials");
             }}
             onRemoveCredentials={async () => {
-              await api.removeCredentialsJson();
+              try {
+                await api.removeCredentialsJson();
+              } catch (err) {
+                setRuntimeError(String(err));
+                return;
+              }
               await performSync(false, "credentials");
             }}
             onStartLogin={() => void handleStartLogin()}
             onLogout={async () => {
-              const snap = await api.logoutAccount();
-              setSnapshot(snap);
-              await refreshHistory();
+              try {
+                const snap = await api.logoutAccount();
+                setSnapshot(snap);
+                setRuntimeError(null);
+                await refreshHistory();
+              } catch (err) {
+                setRuntimeError(String(err));
+              }
             }}
             onOpenUrl={(url) => void handleOpenUrl(url)}
             onRevealDir={(target) => void api.revealSystemDirectory(target)}

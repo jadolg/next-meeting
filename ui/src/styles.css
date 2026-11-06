@@ -1358,6 +1358,26 @@ pre {
   border: 1px solid rgba(16, 185, 129, 0.3);
 }
 
+/* Runtime failure banner (full view, between the top bar and the tabs) */
+.runtime-banner {
+  margin: 12px 18px 0;
+  flex-shrink: 0;
+}
+
+/* Runtime failure banner (compact widget, single line) */
+.compact-error {
+  padding: 6px 9px;
+  font-size: 11.5px;
+  flex-shrink: 0;
+}
+
+.compact-error span {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;
