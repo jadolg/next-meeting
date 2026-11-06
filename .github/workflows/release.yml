@@ -1,23 +1,202 @@
-name: Release
+name: Release (SemVer)
 
 on:
+  push:
+    branches:
+      - main
   release:
-    types: [ created ]
+    types:
+      - created
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "SemVer bump strategy (auto inspects Conventional Commits)"
+        required: true
+        default: "auto"
+        type: choice
+        options:
+          - auto
+          - patch
+          - minor
+          - major
+          - custom
+      custom_version:
+        description: "Explicit X.Y.Z version (required only when bump = custom)"
+        required: false
+        type: string
+      prerelease:
+        description: "Mark the GitHub Release as a pre-release"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: release-semver
+  cancel-in-progress: false
 
 jobs:
-  goreleaser:
+  semver:
+    name: Compute SemVer & Tag
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      should_release: ${{ steps.calc.outputs.should_release }}
+      version: ${{ steps.calc.outputs.version }}
+      tag: ${{ steps.calc.outputs.tag }}
+      prerelease: ${{ steps.calc.outputs.prerelease }}
     steps:
-      - name: Checkout
+      - name: Checkout repository with full history
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+
+      - name: Calculate next SemVer version
+        id: calc
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_BUMP: ${{ inputs.bump }}
+          INPUT_CUSTOM: ${{ inputs.custom_version }}
+          INPUT_PRERELEASE: ${{ inputs.prerelease }}
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+          EVENT_PRERELEASE: ${{ github.event.release.prerelease }}
+        run: |
+          set -euo pipefail
+
+          # Case 1: Triggered by a manually created GitHub Release
+          if [ "${EVENT_NAME}" = "release" ]; then
+            RAW="${EVENT_TAG#v}"
+            RAW="${RAW#V}"
+            if [[ "${RAW}" =~ ^([0-9]+)\.([0-9]+)(\.([0-9]+))? ]]; then
+              VER="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[4]:-0}"
+            else
+              VER="0.1.0"
+            fi
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            echo "version=${VER}" >> "$GITHUB_OUTPUT"
+            echo "tag=${EVENT_TAG}" >> "$GITHUB_OUTPUT"
+            echo "prerelease=${EVENT_PRERELEASE:-false}" >> "$GITHUB_OUTPUT"
+            echo "Using manually published release tag ${EVENT_TAG} (normalized SemVer: ${VER})"
+            exit 0
+          fi
+
+          git fetch --tags --force
+
+          # Skip if HEAD already carries a 3-part SemVer tag during automatic push
+          HEAD_TAG=$(git tag --points-at HEAD | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)
+          if [ "${EVENT_NAME}" = "push" ] && [ -n "${HEAD_TAG}" ]; then
+            echo "HEAD is already tagged with ${HEAD_TAG}; skipping duplicate release."
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          LATEST_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)
+          BUMP="${INPUT_BUMP:-auto}"
+
+          if [ "${BUMP}" = "custom" ]; then
+            CLEAN_CUSTOM="${INPUT_CUSTOM#v}"
+            if ! [[ "${CLEAN_CUSTOM}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::Invalid custom_version '${INPUT_CUSTOM}'. Expected strict SemVer X.Y.Z (e.g. 1.2.0)."
+              exit 1
+            fi
+            NEXT_VER="${CLEAN_CUSTOM}"
+          elif [ -z "${LATEST_TAG}" ]; then
+            # Initial SemVer release in this repository
+            if [ "${EVENT_NAME}" = "push" ]; then
+              LOG_TEXT=$(git log -n 30 --pretty=format:"%s%n%b")
+              if ! grep -Eq '(BREAKING CHANGE|^[a-zA-Z]+(\([^)]+\))?!:|^(feat|fix|perf|refactor|build)(\([^)]+\))?:)' <<< "${LOG_TEXT}"; then
+                echo "No releasable Conventional Commits found for initial release; skipping."
+                echo "should_release=false" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            fi
+            NEXT_VER="1.0.0"
+          else
+            BASE="${LATEST_TAG#v}"
+            IFS='.' read -r MAJOR MINOR PATCH <<< "${BASE}"
+            LOG_TEXT=$(git log "${LATEST_TAG}..HEAD" --pretty=format:"%s%n%b")
+
+            if [ -z "${LOG_TEXT}" ] && [ "${EVENT_NAME}" = "push" ]; then
+              echo "No new commits since ${LATEST_TAG}; skipping."
+              echo "should_release=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            if [ "${BUMP}" = "auto" ]; then
+              if grep -Eq '(BREAKING CHANGE|^[a-zA-Z]+(\([^)]+\))?!:)' <<< "${LOG_TEXT}"; then
+                BUMP="major"
+              elif grep -Eq '^feat(\([^)]+\))?:' <<< "${LOG_TEXT}"; then
+                BUMP="minor"
+              elif grep -Eq '^(fix|perf|refactor|build)(\([^)]+\))?:' <<< "${LOG_TEXT}"; then
+                BUMP="patch"
+              elif [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
+                BUMP="patch"
+              else
+                echo "Only non-release commits (docs/chore/ci/test) since ${LATEST_TAG}; skipping automatic release."
+                echo "should_release=false" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            fi
+
+            case "${BUMP}" in
+              major)
+                MAJOR=$((MAJOR + 1))
+                MINOR=0
+                PATCH=0
+                ;;
+              minor)
+                MINOR=$((MINOR + 1))
+                PATCH=0
+                ;;
+              patch)
+                PATCH=$((PATCH + 1))
+                ;;
+              *)
+                echo "::error::Unsupported bump strategy: ${BUMP}"
+                exit 1
+                ;;
+            esac
+
+            NEXT_VER="${MAJOR}.${MINOR}.${PATCH}"
+          fi
+
+          NEXT_TAG="v${NEXT_VER}"
+          if git rev-parse "${NEXT_TAG}" >/dev/null 2>&1; then
+            echo "::error::Tag ${NEXT_TAG} already exists."
+            exit 1
+          fi
+
+          git tag "${NEXT_TAG}" "${GITHUB_SHA}"
+          git push origin "refs/tags/${NEXT_TAG}"
+
+          echo "should_release=true" >> "$GITHUB_OUTPUT"
+          echo "version=${NEXT_VER}" >> "$GITHUB_OUTPUT"
+          echo "tag=${NEXT_TAG}" >> "$GITHUB_OUTPUT"
+          echo "prerelease=${INPUT_PRERELEASE:-false}" >> "$GITHUB_OUTPUT"
+          echo "Created and pushed SemVer tag ${NEXT_TAG}"
+
+  goreleaser:
+    name: Release CLI (GoReleaser)
+    needs: semver
+    if: needs.semver.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      release_id: ${{ steps.rel.outputs.release_id }}
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.semver.outputs.tag }}
+          fetch-depth: 0
+
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
         with:
@@ -26,3 +205,139 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve GitHub Release ID
+        id: rel
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REL_TAG: ${{ needs.semver.outputs.tag }}
+          IS_PRERELEASE: ${{ needs.semver.outputs.prerelease }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REL_ID: ${{ github.event.release.id }}
+        run: |
+          set -euo pipefail
+          if [ "${EVENT_NAME}" = "release" ] && [ -n "${EVENT_REL_ID}" ]; then
+            REL_ID="${EVENT_REL_ID}"
+          else
+            REL_ID=$(gh release view "${REL_TAG}" --json databaseId --jq '.databaseId')
+          fi
+
+          if [ "${IS_PRERELEASE}" = "true" ]; then
+            gh release edit "${REL_TAG}" --prerelease
+          fi
+
+          echo "release_id=${REL_ID}" >> "$GITHUB_OUTPUT"
+          echo "Resolved GitHub Release ID: ${REL_ID} for ${REL_TAG}"
+
+  release-ui:
+    name: Release UI (${{ matrix.label }})
+    needs:
+      - semver
+      - goreleaser
+    if: needs.semver.outputs.should_release == 'true'
+    runs-on: ${{ matrix.platform }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: linux-x86_64
+            platform: ubuntu-latest
+            args: ""
+          - label: windows-x86_64
+            platform: windows-latest
+            args: ""
+          - label: macos-aarch64
+            platform: macos-latest
+            args: "--target aarch64-apple-darwin"
+          - label: macos-x86_64
+            platform: macos-latest
+            args: "--target x86_64-apple-darwin"
+
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.semver.outputs.tag }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Cache Rust build artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ui/src-tauri
+          key: ${{ matrix.label }}
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libxdo-dev \
+            libssl-dev \
+            xdg-utils \
+            file \
+            wget \
+            build-essential
+
+      - name: Install frontend dependencies
+        working-directory: ui
+        run: npm ci
+
+      - name: Sync UI bundle version with SemVer tag
+        shell: bash
+        env:
+          SEMVER_VERSION: ${{ needs.semver.outputs.version }}
+        run: |
+          node -e '
+            const fs = require("fs");
+            const ver = process.env.SEMVER_VERSION;
+            for (const p of ["ui/package.json", "ui/src-tauri/tauri.conf.json"]) {
+              const json = JSON.parse(fs.readFileSync(p, "utf8"));
+              json.version = ver;
+              fs.writeFileSync(p, JSON.stringify(json, null, 2) + "\n");
+            }
+            const cargoPath = "ui/src-tauri/Cargo.toml";
+            const cargo = fs.readFileSync(cargoPath, "utf8").replace(
+              /^version\s*=\s*"[^"]+"/m,
+              `version = "${ver}"`
+            );
+            fs.writeFileSync(cargoPath, cargo);
+            console.log("Synced UI version to", ver);
+          '
+
+      - name: Build and upload Tauri UI installers
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+          NO_STRIP: "true"
+        with:
+          projectPath: ./ui
+          releaseId: ${{ needs.goreleaser.outputs.release_id }}
+          prerelease: ${{ needs.semver.outputs.prerelease == 'true' }}
+          uploadUpdaterJson: false
+          uploadUpdaterSignatures: false
+          retryAttempts: 2
+          args: ${{ matrix.args }}

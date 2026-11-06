@@ -46,11 +46,15 @@ func NewService(ctx context.Context, client *http.Client) (*Service, error) {
 func (s *Service) GetTodayEvents(ctx context.Context) ([]*MeetingInfo, error) {
 	now := time.Now()
 
-	// Query events from now onwards, limited to today
+	// Query the whole local day. The cache written from this result is also consumed by the
+	// desktop UI for the day's timeline and daily metrics, so it must contain every meeting
+	// of the day, not only those that ended recently. Past events never affect
+	// GetMeetingStatus (current/next) or notifications.
 	year, month, day := now.Date()
+	startOfDay := time.Date(year, month, day, 0, 0, 0, 0, now.Location())
 	tomorrow := time.Date(year, month, day+1, 0, 0, 0, 0, now.Location())
 
-	timeMin := now.Add(-2 * time.Hour).Format(time.RFC3339) // Include events that may have started recently
+	timeMin := startOfDay.Format(time.RFC3339)
 	timeMax := tomorrow.Format(time.RFC3339)
 
 	events, err := s.svc.Events.List("primary").
