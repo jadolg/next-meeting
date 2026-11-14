@@ -1,6 +1,6 @@
 module next-meeting
 
-go 1.27.3
+go 1.27.4
 
 require (
 	github.com/gen2brain/beeep v0.11.2
